@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0
+
+- Add optional process.linux.current_thread.tid and current_thread.lifetime.
+  Prefer Thread.current.native_thread_id plus /proc/self/task/<TID>/stat;
+  fall back to /proc/thread-self/stat after unavailable APIs or failed reads.
+  The task-directory path supports older kernels without thread-self.
+- Reuse the existing bounded process-stat parser and lifetime calculation.
+  Reject mismatched IDs and invalid numerical values; omit missing facilities
+  and isolate unexpected failures. Keep TID when only age calculation fails.
+- Respect nested selectors before discovery; TID-only selection skips age
+  calculation. No new hooks, thread scans, native bindings, dependencies,
+  caches, thread-local state, locks or server-specific behavior.
+- Add standalone fallback/error/selection tests and live Linux native-thread
+  checks. Document M:N limitations and untested CentOS 6/Ruby 3.4 execution.
+  Existing process-age fields, default selection, response ordering and
+  server counters are retained. Full/incremental bundles use v0.3.0 as base.
+
 ## 0.3.0
 
 - Add optional server.passenger.thread_iteration from the current Passenger Ruby

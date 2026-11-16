@@ -31,6 +31,16 @@ required.
   counters; isolate failed reads under their full errors paths. Do not conflate
   Passenger's per-thread iteration with process-wide completed requests or
   Puma's shared worker count with a unique request sequence number.
+- Native-thread lifetime is a passive Linux observation only. Prefer a positive
+  Integer from the optional Thread.current.native_thread_id and the matching
+  /proc/self/task/<TID>/stat; after an ordinary failure try /proc/thread-self/stat
+  once. Do not coerce invalid IDs, guess TID from PID/object_id/pthread_self,
+  scan tasks or introduce Fiddle/native calls. Missing facilities are optional;
+  unexpected unrecovered failures belong in the field's errors entry. Reuse the
+  bounded stat parser/lifetime calculation, preserve TID if age calculation
+  fails, and skip discovery when excluded. TID-only selection must not calculate
+  age. Report native task age, not request duration or guaranteed Ruby Thread
+  age under M:N scheduling. Never pin threads or retain Thread objects/baselines.
 - HTTP request headers and explicitly selected ENV values stay unredacted.
   Within request.rack_environment, allow only the documented action_dispatch
   keys; omit all others in that namespace, nested action_dispatch containers,
@@ -89,6 +99,10 @@ non-finite statistics, invalid strings, body boundaries, collector failures,
 lazy objects, lack of persistent request retention and normal concurrent use.
 Also test unavailable/raising server APIs, server autoload avoidance, counter
 selection, concurrent handler/server reads and no server-object retention.
+Test native-ID/task-path and thread-self fallbacks, unavailable/raising APIs,
+invalid IDs, malformed stat files, denied/missing procfs, clock/uptime errors,
+nested selection, independent failure handling and live native-thread reads
+when supported. Simulating an old-kernel path is not proof of CentOS 6 testing.
 Test permanent server-secret omissions, bare/signed/nested selector ordering,
 query encoding, disabled collectors, and explicit/automatic require behavior.
 The optional script/bundler_smoke uses installed Bundler and temporary local

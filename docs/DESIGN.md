@@ -195,6 +195,43 @@ with `/proc/uptime`. It reports an approximate wall-clock start time. It is
 independent of preloader state and gem load time. No shell `getconf`, `ps`,
 `passenger-status`, uname or allocator-native call is executed.
 
+### Current native-thread lifetime (0.4.0)
+
+`LinuxProcess.current_thread_stat` first calls the guarded
+`Thread.current.native_thread_id` reader and, for a positive Integer, opens
+`/proc/self/task/<TID>/stat` with the existing bounded file reader. This path
+works without the Linux 3.17 thread-self symlink. IDs are never string-coerced
+from unexpected objects, and the parsed task ID must match the path's ID.
+
+An absent/invalid/unimplemented native-ID API or a failed task-file read/parse
+falls back to `/proc/thread-self/stat`, at most once. Missing paths (ENOENT or
+ENOTDIR) are normal absence; if neither facility works the section is omitted.
+If an unexpected first-path error occurs and the fallback is absent, that error
+is re-raised into the field's normal capture boundary rather than hidden. A
+successful fallback suppresses the failed first attempt; a failing fallback
+reports its own unexpected error. Fatal exceptions are never rescued.
+
+The new `parse_stat` helper extracts TID and field-22 start ticks, handling spaces,
+newlines and parentheses in comm. Both process and thread use `lifetime(ticks)`
+to compute the same four lifetime fields as before. Invalid IDs, negative start
+ticks, invalid clock rates and non-finite/negative uptime are rejected instead
+of guessed. File reads and references remain request-local. The process-age
+calculation and its output fields are retained for valid input.
+
+`Snapshot#collect_current_thread` checks the known child selector paths before
+any discovery. It captures TID and lifetime separately, so TID-only selection
+skips Etc/uptime, and a failed lifetime calculation leaves the TID intact. The
+normal output projection handles deeper selectors such as lifetime.age_seconds.
+Only this new collector avoids thread enumeration; the existing independent
+process.ruby_threads metric still uses Thread.list.size when selected.
+
+The result describes the sampled native task, not a portable Ruby Thread birth
+timestamp. M:N scheduling may change the native TID before/after observation;
+no identity pinning or scheduler manipulation is attempted. Do not infer request
+duration, thread-local request ordinal or total requests from thread age. No
+Passenger/Puma-specific integration, startup/fork hook, stored timestamp,
+thread-local entry, native binding, command or additional dependency is used.
+
 There is no full smaps fallback when smaps_rollup is unavailable. `/proc/self/maps`
 is scanned only for allocator-library names; it is not returned wholesale and
 cannot identify statically linked allocators or prove active allocation routing.
@@ -229,3 +266,10 @@ validation):
 
 These sources document counter semantics, not a certified version support
 matrix. Server integration remains conditional on the APIs being present.
+
+Thread-lifetime references checked for 0.4.0 (documentation review, not an
+old-kernel execution test):
+
+- Ruby 3.4 native thread IDs and M:N caveat: https://docs.ruby-lang.org/en/3.4/Thread.html#method-i-native_thread_id
+- Linux task directories (2.6.0+) and thread-self (3.17+): https://man7.org/linux/man-pages/man5/proc_pid_task.5.html
+- Linux stat field 22 and clock-tick units: https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html

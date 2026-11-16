@@ -218,8 +218,25 @@ module RailsRuntimeInfo
       capture(result, "executable", "process.linux.executable") { File.readlink("/proc/self/exe") }
       capture(result, "open_fds", "process.linux.open_fds") { LinuxProcess.fd_count }
       capture(result, "lifetime", "process.linux.lifetime") { LinuxProcess.start_time }
+      collect_current_thread(result)
       capture(result, "allocator_library_hints", "process.linux.allocator_library_hints") { LinuxProcess.allocator_hints }
       result
+    end
+
+    def collect_current_thread(target)
+      path = "process.linux.current_thread"
+      return unless @selection.requested?("#{path}.tid") || @selection.requested?("#{path}.lifetime")
+      stat = LinuxProcess.current_thread_stat
+      return unless stat
+      result = {}
+      capture(result, "tid", "#{path}.tid") { stat.fetch("tid") }
+      capture(result, "lifetime", "#{path}.lifetime") do
+        LinuxProcess.lifetime(stat.fetch("start_ticks_since_boot"))
+      end
+      target["current_thread"] = result
+    rescue StandardError, LoadError, NotImplementedError => error
+      target["current_thread"] = nil
+      @errors[path] = error_description(error)
     end
 
     def server_info

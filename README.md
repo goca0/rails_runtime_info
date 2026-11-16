@@ -33,7 +33,7 @@ observed, not required or reconfigured.
 Restore the repository from the supplied full Git bundle:
 
 ```sh
-git clone rails_runtime_info-0.3.0-full.bundle rails_runtime_info
+git clone rails_runtime_info-0.4.0-full.bundle rails_runtime_info
 ```
 
 For an adjacent local checkout, add this to the application's Gemfile in a group
@@ -114,7 +114,7 @@ The application itself must support its chosen Ruby/Rails/Rack combination.
 | `gc` | Complete results of available `GC.stat`, `GC.latest_gc_info` and `GC.stat_heap` calls. |
 | `yjit` | Availability, enabled/statistics flags where supported and the complete available `runtime_stats` result, including `null` when returned by Ruby. |
 | `process` | PID/PPID, user/group IDs, Ruby thread count, CPU time, working directory, program name, arguments and `Etc.uname`. No account-name or hostname lookup is performed. |
-| `process.linux` | `/proc/self/status`, `smaps_rollup`, I/O counters, limits, cgroups, command line, executable link, FD count, estimated process lifetime, OS release and allocator-library hints. |
+| `process.linux` | `/proc/self/status`, `smaps_rollup`, I/O counters, limits, cgroups, command line, executable link, FD count, estimated process and current native-thread lifetimes, OS release and allocator-library hints. |
 | `server` | Rack's server-software value, existing Passenger version information, and optional `passenger.thread_iteration` / `puma.requests_count` readings from the current handler/server. A loaded version constant alone does not prove which server handled the request. |
 | `request` | Method, URI fields, query string, scheme/protocol/address metadata, all available HTTP header values, reconstructed URL, safe Rack-environment snapshot and opt-in bounded raw body. |
 | `errors` | Independently failed collectors, with exception class and best-effort message. |
@@ -123,6 +123,91 @@ No database collector is present, not even connection-pool inspection. There
 are no SQL queries, database connections, Redis calls, job-adapter initialization,
 network calls, external commands or application-health checks. There are no
 custom collector callbacks in this version.
+
+### Process and current native-thread age
+
+Process age is already available at `process.linux.lifetime`. Version 0.4.0 adds
+`process.linux.current_thread`, included by default when obtainable on Linux.
+For example (illustrative values, not a live snapshot):
+
+```json
+{
+  "process": {
+    "linux": {
+      "current_thread": {
+        "tid": 12346,
+        "lifetime": {
+          "start_ticks_since_boot": 25000,
+          "clock_ticks_per_second": 100,
+          "age_seconds": 3600.5,
+          "started_at_utc_approximate": "2026-11-16T17:00:00.000000Z"
+        }
+      }
+    }
+  }
+}
+```
+
+Discovery is passive and attempted in this order:
+
+1. When `Thread.current.native_thread_id` is available and returns a positive
+   Integer, read `/proc/self/task/<TID>/stat`. This is the old-kernel path:
+   `/proc/<pid>/task` exists since Linux 2.6.0 and does not need `/proc/thread-self`.
+   The TID parsed from the file must match the requested TID.
+2. Otherwise, or after an ordinary failure of that lookup/read/parse, try
+   `/proc/thread-self/stat`. This works without the Ruby native-ID method on
+   kernels providing that path (Linux 3.17+). Each path is tried at most once.
+
+The native-ID method is available in Ruby 3.4; the collector does not require
+it for loading or for the modern-kernel fallback. This is intended to cover
+CentOS 6 / Linux 2.6.32 workers running a Ruby with native-TID support. **That
+specific old-kernel/Ruby 3.4 combination has not been executed in validation.**
+On an older Ruby without that API and an older kernel without thread-self, the
+thread section is omitted; no native extension, Fiddle binding, raw syscall,
+external command or scan of other tasks is attempted. Ruby 2.4 remains the
+minimum implementation target.
+
+The existing process-lifetime calculation is reused: field 22 supplies start
+ticks, `Etc.sysconf(Etc::SC_CLK_TCK)` supplies the conversion rate, and
+`/proc/uptime` supplies the current boot-relative time. The UTC timestamp is
+only an estimate derived from the wall clock at collection. Collection is not
+atomic with other metrics and does not retain baselines across requests/forks.
+
+This is **native OS thread age, not request duration or necessarily Ruby Thread
+object age**. With an M:N Ruby implementation a Ruby thread's native TID can
+change; the result describes the native task sampled, without pinning threads
+or promising that it still executes the request when the response is sent.
+
+Missing paths/unsupported native-ID facilities omit the section. An unexpected
+unrecovered lookup/read/parse failure produces `current_thread: null` and an
+`errors["process.linux.current_thread"]` entry. A failed lifetime calculation
+preserves the TID and reports `errors["process.linux.current_thread.lifetime"]`.
+Recovered first-path failures do not create an error entry. Fatal exceptions
+are not swallowed. Unrelated process/server information remains available.
+
+The existing `what` syntax applies, for example:
+
+```text
+?what=-all,process.linux.lifetime,process.linux.current_thread,errors
+```
+
+To keep defaults except thread discovery:
+
+```text
+?what=-process.linux.current_thread
+```
+
+For only the current native TID, without reading uptime or obtaining clock ticks:
+
+```text
+?what=-all,process.linux.current_thread.tid,errors
+```
+
+Excluding `process.linux.current_thread` skips native-ID discovery and both task
+stat reads. Excluding its `lifetime` skips the thread's age calculation (the
+independently selected process lifetime may still read uptime). No hooks,
+server-specific calls, new threads, locks, caches or persistent references to
+Thread objects are added. Source references are in [design notes](docs/DESIGN.md).
 
 ### Passive server counters
 
@@ -445,27 +530,27 @@ A Git bundle carries commits/refs, not the source repository's local Git config.
 
 ### Full and incremental bundles
 
-The full `rails_runtime_info-0.3.0-full.bundle` can be cloned into an empty
-location using the command above. It includes `main`, `v0.3.0` and all previous
+The full `rails_runtime_info-0.4.0-full.bundle` can be cloned into an empty
+location using the command above. It includes `main`, `v0.4.0` and all previous
 history/tags.
 
-The smaller `rails_runtime_info-0.3.0-incremental.bundle` requires the existing
-commit `cc232579f416ca4edb872c065b058ae542003a81` (v0.2.1) and its history. It
-contains only the new history plus the `main` and `v0.3.0` refs; it cannot be
+The smaller `rails_runtime_info-0.4.0-incremental.bundle` requires the existing
+commit `4a362960a00c87cfe8dd4d7386e4bc2c501e4d80` (v0.3.0) and its history. It
+contains only the new history plus the `main` and `v0.4.0` refs; it cannot be
 cloned into an empty repository. From a clean existing checkout on the branch
 you intend to update, with the bundle in its parent directory:
 
 ```sh
-git bundle verify ../rails_runtime_info-0.3.0-incremental.bundle
+git bundle verify ../rails_runtime_info-0.4.0-incremental.bundle
 ```
 
 ```sh
-git fetch ../rails_runtime_info-0.3.0-incremental.bundle refs/heads/main refs/tags/v0.3.0:refs/tags/v0.3.0
+git fetch ../rails_runtime_info-0.4.0-incremental.bundle refs/heads/main refs/tags/v0.4.0:refs/tags/v0.4.0
 ```
 
 ```sh
-git merge --ff-only v0.3.0
+git merge --ff-only v0.4.0
 ```
 
 The fast-forward requirement refuses a diverged branch rather than rewriting
-local work. Authentication and route integration are unchanged from 0.2.1.
+local work. Authentication and route integration are unchanged from 0.3.0.
