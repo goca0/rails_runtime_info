@@ -29,6 +29,9 @@ a bounded prefix. Other input streams are read at most 100 KiB plus one byte.
 No request context reaches a class-level cache. `Snapshot` and its referenced
 request and selection tree become unreachable after serialization returns. `Body` stores no block,
 normalizer, snapshot or request, and drops the JSON reference on `close`.
+`Body#each` snapshots the JSON String reference into a local before the nil
+check and yield, preventing concurrent `close` from turning a yielded chunk
+into `nil`. The local does not copy the String and expires when iteration ends.
 
 ## Rails is optional, and initialization is deliberately avoided
 

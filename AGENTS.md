@@ -67,8 +67,11 @@ required.
 - Each collector must fail independently. Ordinary failures belong in `errors`;
   fatal exceptions must propagate. Never log request data or errors globally.
 - Keep request and snapshot data short-lived. The response body retains only
-  serialized JSON and releases it on close. Do not retain request objects in
-  closures, class/module variables, thread locals or global error stores.
+  serialized JSON and releases it on close. `Body#each` must capture a local
+  reference to the JSON before checking/yielding it, so concurrent `close`
+  cannot cause a nil chunk; do not copy or retain it beyond iteration. Do not
+  retain request objects in closures, class/module variables, thread locals
+  or global error stores.
 
 "Read-only" means no intentional application mutation, not zero allocation,
 zero observer overhead, or a guarantee that RSS falls after a request. Preserve

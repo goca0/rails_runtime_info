@@ -83,6 +83,24 @@ class NonInvasiveTest < Minitest::Test
     assert_equal [], RailsRuntimeInfo::Endpoint.instance_variables
   end
 
+  def test_close_between_content_check_and_yield_does_not_yield_nil
+    content = String.new("diagnostic JSON")
+    body = RailsRuntimeInfo::Body.new(content)
+
+    # Force the interleaving that concurrent close can otherwise cause.
+    # This must not change which value each has already captured.
+    content.define_singleton_method(:nil?) do
+      body.close
+      false
+    end
+
+    yielded = []
+    body.each { |chunk| yielded << chunk }
+    assert_equal 1, yielded.length
+    assert_same content, yielded.first
+    assert_nil body.instance_variable_get(:@content)
+  end
+
   def response_and_weak_reference
     env = what_env("request.body", "temporary")
     weak = WeakRef.new(env)

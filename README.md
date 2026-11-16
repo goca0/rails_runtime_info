@@ -33,7 +33,7 @@ observed, not required or reconfigured.
 Restore the repository from the supplied full Git bundle:
 
 ```sh
-git clone rails_runtime_info-0.4.0-full.bundle rails_runtime_info
+git clone rails_runtime_info-0.4.1-full.bundle rails_runtime_info
 ```
 
 For an adjacent local checkout, add this to the application's Gemfile in a group
@@ -452,7 +452,9 @@ swallowed. A killed, wedged or exhausted worker cannot be rescued by this gem.
 Snapshots, selection rules and normalizers are request-local. No full snapshot, environment,
 request, exception object or response history is retained in module/class
 state. The Rack response body holds only the final JSON string; `close` clears
-that reference even if the response object remains reachable. Rack servers and
+that reference even if the response object remains reachable. During `each`, a
+local reference ensures that concurrent `close` cannot change the chunk to `nil`;
+that reference expires after iteration. Rack servers and
 middleware must close it. The gem never calls `GC.start`, changes GC settings,
 compacts the heap, or enables/resets YJIT/statistics. Reclaimable Ruby objects do
 not imply immediate GC or a reduction in RSS.
@@ -530,27 +532,27 @@ A Git bundle carries commits/refs, not the source repository's local Git config.
 
 ### Full and incremental bundles
 
-The full `rails_runtime_info-0.4.0-full.bundle` can be cloned into an empty
-location using the command above. It includes `main`, `v0.4.0` and all previous
+The full `rails_runtime_info-0.4.1-full.bundle` can be cloned into an empty
+location using the command above. It includes `main`, `v0.4.1` and all previous
 history/tags.
 
-The smaller `rails_runtime_info-0.4.0-incremental.bundle` requires the existing
-commit `4a362960a00c87cfe8dd4d7386e4bc2c501e4d80` (v0.3.0) and its history. It
-contains only the new history plus the `main` and `v0.4.0` refs; it cannot be
+The smaller `rails_runtime_info-0.4.1-incremental.bundle` requires the existing
+commit `ecab7f3e0945be44ae17f3f7dd0bfd5de456d7f2` (v0.4.0) and its history. It
+contains only the new history plus the `main` and `v0.4.1` refs; it cannot be
 cloned into an empty repository. From a clean existing checkout on the branch
 you intend to update, with the bundle in its parent directory:
 
 ```sh
-git bundle verify ../rails_runtime_info-0.4.0-incremental.bundle
+git bundle verify ../rails_runtime_info-0.4.1-incremental.bundle
 ```
 
 ```sh
-git fetch ../rails_runtime_info-0.4.0-incremental.bundle refs/heads/main refs/tags/v0.4.0:refs/tags/v0.4.0
+git fetch ../rails_runtime_info-0.4.1-incremental.bundle refs/heads/main refs/tags/v0.4.1:refs/tags/v0.4.1
 ```
 
 ```sh
-git merge --ff-only v0.4.0
+git merge --ff-only v0.4.1
 ```
 
 The fast-forward requirement refuses a diverged branch rather than rewriting
-local work. Authentication and route integration are unchanged from 0.3.0.
+local work. Authentication and route integration are unchanged from 0.4.0.

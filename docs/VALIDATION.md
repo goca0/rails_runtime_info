@@ -1,5 +1,34 @@
 # Validation record
 
+## Version 0.4.1 - executed on 2026-11-17
+
+Based on the clean v0.4.0 commit
+`ecab7f3e0945be44ae17f3f7dd0bfd5de456d7f2`. This patch changes only the
+Rack response body's `each` method to hold its serialized JSON String in an
+iteration-local variable before testing/yielding it; `close` still clears its
+instance-variable reference. The change introduces no lock, copy, background
+work, global state or extra retention after `each` returns.
+
+The new test deterministically forces `close` after a content-presence check
+but before yielding. The prior implementation would yield `nil`; the new one
+yields the same String and leaves `@content` cleared. Existing lifecycle and
+concurrent-request isolation tests remain in place.
+
+On Linux 6.18.57 / MRI Ruby 3.3.8, Minitest 5.20.0, the full standalone suite
+passed **179 tests and 894 assertions, zero failures/errors/skips** on seeds
+24680 and 43210. `ruby script/bundler_smoke` passed for both automatic and
+explicit loading using Bundler 2.5.22. `gem build rails_runtime_info.gemspec`
+produced a 0.4.1 gem. All Ruby source, tests, scripts and the gemspec passed
+`ruby -c`; `git diff --check` passed.
+
+No Rails application was booted, no runtime dependencies were installed, and
+no external network/service calls were made. Rack::Lint remained unavailable
+because Rack is not installed; `script/rack_lint` exited 2. Neither Ruby 2.4,
+Ruby 3.4, Rails 5.1+, Passenger, nor Puma was exercised. The test simulates
+the troublesome interleaving deterministically rather than stress-testing
+an actual concurrent Rack server. Refer to the prior 0.4.0 entry for Linux
+native-thread behavior and its untested deployment combinations.
+
 ## Version 0.4.0 - executed on 2026-11-16
 
 Environment: Linux x86_64, kernel 6.18.57, MRI Ruby 3.3.8, Minitest 5.20.0,

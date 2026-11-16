@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- Hold the response JSON string in an `each`-local reference before checking
+  and yielding it. A concurrent `Body#close` can no longer turn an already
+  selected response chunk into `nil`. No copies, locks or retained references
+  beyond the executing iteration are introduced.
+- Add a deterministic regression test for `close` between the presence check
+  and the yield. Preserve the existing on-close release and request-local
+  garbage-collection behavior.
+
 ## 0.4.0
 
 - Add optional process.linux.current_thread.tid and current_thread.lifetime.

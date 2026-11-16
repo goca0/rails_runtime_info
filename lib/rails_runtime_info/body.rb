@@ -10,7 +10,8 @@ module RailsRuntimeInfo
     end
 
     def each
-      yield @content unless @content.nil?
+      content = @content
+      yield content unless content.nil?
     end
 
     def close
