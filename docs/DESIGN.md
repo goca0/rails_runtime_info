@@ -23,7 +23,7 @@ not promised stable.
 
 Known Rack body caches are descriptors in the environment snapshot, not
 second copies of an unbounded body. Rails parameter caches are omitted by the
-Action Dispatch allowlist. Existing RAW_POST_DATA is used only through
+Action Dispatch whitelist. Existing RAW_POST_DATA is used only through
 a bounded prefix. Other input streams are read at most 100 KiB plus one byte.
 
 No request context reaches a class-level cache. `Snapshot` and its referenced
@@ -45,8 +45,46 @@ and exception-isolated.
 The existing cache object contributes its class name only. The job adapter is
 read from configuration, never instantiated through ActiveJob. ActiveRecord is
 not referenced by library code at all. Optional constants are not resolved when
-they are registered as autoloads. Passenger contributes an existing version
-constant only; there are no fork hooks or request counters.
+they are registered as autoloads. Existing Passenger/Puma state is read only
+through the narrow optional counter paths below; there are no fork hooks or
+gem-maintained request counters.
+
+## Passive Passenger and Puma counters
+
+The existing server section gains two independent optional field captures:
+`server.passenger.thread_iteration` and `server.puma.requests_count`.
+`optional_server_counter` checks the full selector path before discovery or
+reading, accepts only a nonnegative Integer, and omits unavailable readings.
+Failures use the existing field-local null/error representation. The captured
+result contains only an integer, never a handler/server object or exception.
+
+Passenger discovery is precisely `Thread.current[:passenger_thread_handler]`;
+only a present object's public `iteration` reader is called. Passenger's Ruby
+handler installs that entry and increments its iteration before dispatching to
+the Rack application. The loop also handles PING, out-of-band work and invalid
+connections. This is per-handler progress, including the current iteration,
+not the core's process-wide session-closure count shown by `passenger-status`.
+Do not subtract one, combine threads, infer successful completion, or attempt
+to reproduce the core's accounting. Ruby's `Thread#[]` storage is fiber-local;
+if the endpoint executes elsewhere, an absent handler is acceptable. No private
+instance-variable traversal, object-heap traversal, mutex or thread scan is used.
+
+Puma discovery first checks for an already-loaded `Puma` and `Puma::Server`,
+without resolving autoloads. The collector calls `Server.current` only when
+supported and reads `requests_count` only from its non-nil result with a public
+reader. No server is instantiated and there is no fallback to global stats or
+control APIs. The counter is worker/server-wide and incremented before Rack
+application dispatch in the inspected implementations. Several concurrent
+requests can observe the same value. It is not an exact ordinal of the current
+request or a count of completed successful application requests.
+
+In particular, never replace these reads with `Puma.stats`, `Puma.stats_hash`
+or `Server#stats`: broader stats calls can reset high-water metrics. Never
+require Passenger/Puma, invoke `passenger-status`, query the core socket,
+install instrumentation, or retain server/handler objects. Availability checks
+and exception isolation provide best-effort compatibility, not a safety promise
+against arbitrary monkey patches, a blocking replacement reader or fatal VM
+failures. Ordinary exceptions are isolated; fatal exceptions still propagate.
 
 ## Error policy
 
@@ -114,7 +152,7 @@ The important excluded keys are `action_dispatch.secret_key_base`, the Rails
 5.1-era `action_dispatch.secret_token`, `action_dispatch.key_generator` and
 `action_dispatch.cookies_rotations`. Cookie rotations can hold actual prior
 signing/encryption keys. Cookie salts/digests and other framework configuration
-are excluded as non-allowlisted metadata, without claiming salts are themselves
+are excluded as non-whitelisted metadata, without claiming salts are themselves
 secret keys. Opaque application objects are never inspected for internal keys.
 
 A second concrete secret-bearing location is `rack.session.options`:
@@ -181,3 +219,13 @@ vendor Rails, Rack, Bundler or Ruby sources.
 - Rack 2.2.8 per-request session options: https://github.com/rack/rack/blob/v2.2.8/lib/rack/session/abstract/id.rb
 - Bundler setup versus require: https://github.com/rubygems/rubygems/blob/v3.5.22/bundler/lib/bundler/runtime.rb
 - URI form-decoding semantics: https://docs.ruby-lang.org/en/3.0/URI.html#method-c-decode_www_form_component
+
+Server-counter references checked for 0.3.0 (source inspection, not live-server
+validation):
+
+- Passenger handler storage and iteration: https://github.com/phusion/passenger/blob/stable-6.0/src/ruby_supportlib/phusion_passenger/request_handler/thread_handler.rb
+- Puma 5.6.9 Server.current, requests_count and process_client: https://puma.io/puma5/Puma/Server.html
+- Puma 8.0.2 Server.current, requests_count, process_client and stats: https://puma.io/puma/Puma/Server.html
+
+These sources document counter semantics, not a certified version support
+matrix. Server integration remains conditional on the APIs being present.

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+- Add optional server.passenger.thread_iteration from the current Passenger Ruby
+  thread handler and server.puma.requests_count from Puma::Server.current.
+  These report existing counters only; no instrumentation, hooks, initialization,
+  server locks, subprocesses, control-socket queries or statistics resets.
+- Skip counter discovery/readers when their dotted selector paths are excluded.
+  Omit unavailable or invalid readings; isolate exceptions per counter while
+  retaining unrelated diagnostics. Keep existing defaults and display order.
+- Document Passenger's per-handler iteration versus Puma's shared worker count,
+  concurrency/fiber limitations and the distinction from passenger-status.
+- Add standalone regression tests for optional APIs, errors, autoload avoidance,
+  selectors, multithreaded snapshots and server-object lifetime. Bump to 0.3.0
+  and document full/incremental bundle restoration from v0.2.1.
+
 ## 0.2.1
 
 - Accept bare category and dotted-path names as inclusion rules; `-` still
@@ -15,7 +30,7 @@
 
 - Remove the Gemfile.lock inventory and all lockfile-reading code; retain only
   activated gems from Gem.loaded_specs.
-- Omit non-allowlisted action_dispatch request-environment keys, including
+- Omit non-whitelisted action_dispatch request-environment keys, including
   secret_key_base, legacy secret_token, key generators and cookie rotations.
   Also omit rack.session.options, which can contain signing secrets.
 - Add ordered, signed `what` selection with nested JSON-object paths. Defaults

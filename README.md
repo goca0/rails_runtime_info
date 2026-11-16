@@ -5,7 +5,7 @@ and one route; inspect a pretty-printed JSON snapshot when troubleshooting.
 
 **This endpoint deliberately returns credentials present in HTTP requests and,
 when selected, the process environment. It has no authentication. Rails-injected
-request-environment entries are narrowly allowlisted to avoid exposing server
+request-environment entries are narrowly whitelisted to avoid exposing server
 signing/encryption secrets; this is not general-purpose secret redaction. Protect
 the route at a trusted ingress with Basic authentication over TLS and appropriate
 network restrictions before enabling it.**
@@ -33,7 +33,7 @@ observed, not required or reconfigured.
 Restore the repository from the supplied full Git bundle:
 
 ```sh
-git clone rails_runtime_info-0.2.1.bundle rails_runtime_info
+git clone rails_runtime_info-0.3.0-full.bundle rails_runtime_info
 ```
 
 For an adjacent local checkout, add this to the application's Gemfile in a group
@@ -95,7 +95,7 @@ apply. Removing the route and Gemfile entry removes the integration.
 The code targets **Ruby 2.4+ and Rails 5.1+**, without requiring Rails to use the
 Rack callable. Optional methods and constants are checked before use. Linux
 collectors are optional; a non-Linux application still gets the other sections.
-There is no Passenger dependency. The response uses lowercase headers and does
+There is no Passenger or Puma dependency. The response uses lowercase headers and does
 not require a rewindable Rack input stream, accommodating Rack 2/3 conventions.
 
 These are implementation targets, not a claim that every version combination
@@ -115,7 +115,7 @@ The application itself must support its chosen Ruby/Rails/Rack combination.
 | `yjit` | Availability, enabled/statistics flags where supported and the complete available `runtime_stats` result, including `null` when returned by Ruby. |
 | `process` | PID/PPID, user/group IDs, Ruby thread count, CPU time, working directory, program name, arguments and `Etc.uname`. No account-name or hostname lookup is performed. |
 | `process.linux` | `/proc/self/status`, `smaps_rollup`, I/O counters, limits, cgroups, command line, executable link, FD count, estimated process lifetime, OS release and allocator-library hints. |
-| `server` | Rack's server-software value and passive information from an already-loaded `PhusionPassenger` constant. This does not prove which server handled the request. |
+| `server` | Rack's server-software value, existing Passenger version information, and optional `passenger.thread_iteration` / `puma.requests_count` readings from the current handler/server. A loaded version constant alone does not prove which server handled the request. |
 | `request` | Method, URI fields, query string, scheme/protocol/address metadata, all available HTTP header values, reconstructed URL, safe Rack-environment snapshot and opt-in bounded raw body. |
 | `errors` | Independently failed collectors, with exception class and best-effort message. |
 
@@ -123,6 +123,55 @@ No database collector is present, not even connection-pool inspection. There
 are no SQL queries, database connections, Redis calls, job-adapter initialization,
 network calls, external commands or application-health checks. There are no
 custom collector callbacks in this version.
+
+### Passive server counters
+
+Version 0.3.0 adds two optional fields under the existing `server` category:
+
+| Field | Source and meaning |
+| --- | --- |
+| `server.passenger.thread_iteration` | Reads `Thread.current[:passenger_thread_handler].iteration` when the handler and reader exist. This is the current Passenger Ruby handler's iteration, including the current request. It is **per handler thread**, not Passenger core's process-wide `Processed` count. PING, out-of-band work and malformed connections can also advance it. |
+| `server.puma.requests_count` | Reads `Puma::Server.current.requests_count` when the constants and methods are already available. This is the current worker/server's existing count, advanced before Rack application dispatch. Concurrent requests share it, so it is **not a unique request sequence number** or a completed-request count. It is not summed across Puma workers. |
+
+Both are included by the default selection when available. For just server
+information and collection errors:
+
+```text
+?what=-all,server,errors
+```
+
+The fields also work with the existing dotted selectors:
+
+```text
+?what=-all,server.passenger.thread_iteration,server.puma.requests_count,errors
+```
+
+To retain default diagnostics but skip both counter reads:
+
+```text
+?what=-server.passenger.thread_iteration,-server.puma.requests_count
+```
+
+An unavailable API, missing handler/server, or value other than a nonnegative
+Integer omits the corresponding counter object; it is not guessed or converted
+to zero. An exception follows the normal collector convention: the field is
+`null` and its full path appears in `errors` when selected. The other counter
+and unrelated diagnostics remain available. Existing `passenger_version` and
+`passenger_constant_loaded` fields are unchanged.
+
+There is no `require` or autoload of either server, counter installation,
+mutation, mutex acquisition, cross-thread scan, status command, control-socket
+query, hook or persistent object retention. In particular, the gem does **not**
+call `Puma.stats`, `Puma.stats_hash` or `Puma::Server#stats`, whose implementations
+can reset other statistics. Counter reads are skipped when deselected.
+
+Passenger's internal lookup uses Ruby's fiber-local `Thread#[]` storage. Moving
+execution to a different fiber/thread may make that handler unavailable; the
+gem does not hunt for a replacement. These are best-effort internal API reads,
+not guaranteed across all server versions or Passenger Enterprise variants.
+Neither counter is promised atomic with the rest of the diagnostic snapshot.
+See [design notes](docs/DESIGN.md) for source references and
+[validation](docs/VALIDATION.md) for the untested live-server combinations.
 
 ### Selecting sections with `what`
 
@@ -228,7 +277,7 @@ Every other entry in that namespace is omitted altogether, not replaced by a
 value-containing descriptor. In particular this removes `secret_key_base`,
 legacy `secret_token`, `key_generator`, `cookies_rotations`, and any future
 unrecognized Rails keys. Cookie salts are not themselves generally secret
-keys, but are not on this small diagnostic allowlist either. Complex allowed
+keys, but are not on this small diagnostic whitelist either. Complex allowed
 values, such as an already-created remote-IP object, remain opaque; the gem
 does not invoke Rails accessors to materialize them.
 
@@ -271,7 +320,7 @@ touching `rack.input`. Known raw and
 parsed Rack body-cache entries in the Rack-environment snapshot are descriptors,
 not duplicate payloads, so they cannot bypass this capture limit. These include
 `RAW_POST_DATA` and Rack form caches. Rails request-parameter caches are omitted
-entirely by the `action_dispatch.*` allowlist. Custom
+entirely by the `action_dispatch.*` whitelist. Custom
 middleware data under other keys is not inferred to be a body cache.
 
 Otherwise the body reader reads **at most 102,401 bytes**, returns at most **102,400 bytes
@@ -393,3 +442,30 @@ The gemspec sets a deliberately non-routable `allowed_push_host` to help prevent
 accidental publication. The owner must select an appropriate private registry
 configuration or public license before publishing. No remote Git host is assumed.
 A Git bundle carries commits/refs, not the source repository's local Git config.
+
+### Full and incremental bundles
+
+The full `rails_runtime_info-0.3.0-full.bundle` can be cloned into an empty
+location using the command above. It includes `main`, `v0.3.0` and all previous
+history/tags.
+
+The smaller `rails_runtime_info-0.3.0-incremental.bundle` requires the existing
+commit `cc232579f416ca4edb872c065b058ae542003a81` (v0.2.1) and its history. It
+contains only the new history plus the `main` and `v0.3.0` refs; it cannot be
+cloned into an empty repository. From a clean existing checkout on the branch
+you intend to update, with the bundle in its parent directory:
+
+```sh
+git bundle verify ../rails_runtime_info-0.3.0-incremental.bundle
+```
+
+```sh
+git fetch ../rails_runtime_info-0.3.0-incremental.bundle refs/heads/main refs/tags/v0.3.0:refs/tags/v0.3.0
+```
+
+```sh
+git merge --ff-only v0.3.0
+```
+
+The fast-forward requirement refuses a diverged branch rather than rewriting
+local work. Authentication and route integration are unchanged from 0.2.1.

@@ -229,7 +229,36 @@ module RailsRuntimeInfo
       if passenger
         capture(result, "passenger_version", "server.passenger_version") { loaded(passenger, :VERSION_STRING) }
       end
+      optional_server_counter(result, "passenger", "thread_iteration") do
+        # Passenger installs this handler itself. Do not search other threads,
+        # acquire its mutex, or treat its iteration as the core's Processed count.
+        handler = Thread.current[:passenger_thread_handler]
+        handler.iteration if handler && handler.respond_to?(:iteration)
+      end
+      optional_server_counter(result, "puma", "requests_count") do
+        puma = loaded(Object, :Puma)
+        server_class = puma && loaded(puma, :Server)
+        if server_class && server_class.respond_to?(:current)
+          server = server_class.current
+          # Do not call Puma.stats or Server#stats: some versions reset metrics.
+          server.requests_count if server && server.respond_to?(:requests_count)
+        end
+      end
       Normalizer.new.call(result)
+    end
+
+    def optional_server_counter(target, server_name, key)
+      path = "server.#{server_name}.#{key}"
+      return unless @selection.requested?(path)
+      fields = {}
+      capture(fields, key, path) do
+        value = yield
+        # No coercion: absent or changed private APIs mean unavailable, not zero.
+        value if Integer === value && value >= 0
+      end
+      # Omit unavailable counters. Preserve the normal null + errors convention
+      # for a failed collector without suppressing the other server's fields.
+      target[server_name] = fields unless fields[key].nil? && !@errors.key?(path)
     end
 
     def gem_info

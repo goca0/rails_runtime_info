@@ -100,7 +100,7 @@ module RailsRuntimeInfo
       end
       return false unless name
       # A nested action_dispatch container is not a standard Rack key; do not
-      # let it bypass the flat-key allowlist. Session options can carry signing
+      # let it bypass the flat-key whitelist. Session options can carry signing
       # secrets with Rack session middleware, so exclude that entry as well.
       return true if name == "action_dispatch" || name == "rack.session.options"
       name.start_with?("action_dispatch.") && !ACTION_DISPATCH_KEYS.include?(name)

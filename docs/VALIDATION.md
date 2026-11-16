@@ -1,103 +1,116 @@
 # Validation record
 
-## Version 0.2.1 - executed on 2026-10-18
+## Version 0.3.0 - executed on 2026-11-16
 
 Environment: Linux x86_64, MRI Ruby 3.3.8, Minitest 5.20.0, JSON 2.7.2,
-RubyGems 3.6.7 and Bundler 2.5.22. No Rails installation or application was used.
+RubyGems 3.6.7 and Bundler 2.5.22. No Rails application was booted. Rails,
+Rack, Passenger and Puma are not installed in the validation environment.
 
-The standalone suite passed with **120 tests, 516 assertions, zero failures,
-zero errors and zero skips**. The final suite was run with seeds 24680 and
-43210. Tests require neither Rails nor Rack nor Bundler.
+Development started from the supplied v0.2.1 full bundle at
+`cc232579f416ca4edb872c065b058ae542003a81`. Its unchanged baseline passed with
+120 tests and 516 assertions. Previous commits and annotated tags are retained.
+
+The 0.3.0 standalone suite passed with **147 tests, 736 assertions, zero
+failures, zero errors and zero skips**, with seeds 24680 and 43210:
 
 ```sh
-ruby script/test
+ruby script/test --seed 24680
 ```
 
-Changes covered by regression tests include:
+```sh
+ruby script/test --seed 43210
+```
 
-- Only activated gems are collected. There is no lockfile parser or inventory;
-  a gems-only request succeeds with file opens disabled and a nonexistent
-  BUNDLE_GEMFILE.
-- The exact default selection and JSON ordering; bare and signed rules, parent
-  resets, nested inclusions/exclusions, all/none, repeated query parameters,
-  plain URLs, legacy encoded and literal plus signs, encoded comma/key names,
-  invalid selectors and parser size/depth/rule limits.
-- An independent last-matching-rule reference agrees with the selection tree
-  on 100 deterministic randomized sequences of 16 rules each, mixing bare,
-  plus-prefixed and minus-prefixed rules.
-- Unselected collectors do not run. The default excludes request.body and does
-  not invoke its collector, even for cached bodies. Known cached-body entries
-  remain descriptors rather than payloads. Explicit request.body, request and
-  all selections restore bounded capture; a later body exclusion prevents it.
-  Disabling request.rack_environment skips its normalization. Invalid selection
-  returns 400 before collection/body reads.
-- The six-key Action Dispatch allowlist; omitted secret_key_base, legacy
-  secret_token, key-generator/rotation data, unknown future keys and
-  rack.session.options; recursive aliases/symbol keys; selectors cannot restore
-  omissions; input hashes are unchanged. Only synthetic secrets are fixtures.
-- HTTP credentials and explicitly selected environment values remain visible,
-  as required. This is intentionally not universal secret redaction.
+These tests require neither Rails nor Rack nor Bundler. Passenger and Puma
+counter tests use synthetic API objects; they do not start either server.
 
-Previously established coverage remains for request metadata, UTF-8/binary
-strings, body boundaries and cached bodies, short reads and consumed streams,
-cycle/depth/node guards, opaque lazy objects, optional framework constants,
-full GC/YJIT hashes, nil/NaN statistics, collector isolation, error-message and
-JSON fallbacks, fatal exceptions, HEAD, concurrent requests and body closure.
+## New regression coverage
 
-Additional executed checks:
+- Passenger current-handler iteration and Puma current-server request count,
+  including zero and large Integers. Missing handlers, methods and constants,
+  nil values, negatives, non-Integers and opaque unexpected objects are omitted
+  without coercion or object serialization.
+- Server-module and Puma::Server autoloads remain unresolved. No server is
+  required, instantiated or configured. Existing require-time isolation tests
+  also confirm no extra gem activation, threads, ENV or load-path changes.
+- Exceptions in either counter, Puma::Server.current discovery and capability checks
+  are isolated. StandardError, LoadError and NotImplementedError produce
+  field-local errors; fatal exceptions propagate. Other server/process fields
+  still work when one reader fails.
+- Dotted counter inclusions/exclusions skip discovery and reader calls; parent
+  resets preserve existing selection semantics. Default counter inclusion
+  does not change body omission or the required top-level presentation order.
+- Frozen synthetic handlers/servers can be observed without mutation. Repeated
+  snapshots do not increment or cache readings. No server mutex or broad Puma
+  stats method is called, and no thread-local key is installed by the collector.
+- Concurrent synthetic requests retain their individual Passenger iterations
+  while observing the shared synthetic Puma worker count. A different fiber
+  without Passenger's local entry produces no counter rather than a fallback
+  thread/fiber search. This tests collector behavior, not live server scheduling.
+- Weak references verify the completed response does not retain the temporary
+  handler or server. Forced GC is used only in tests, never by library code.
+- The implementation and gemspec both report version 0.3.0.
 
-- A fresh Ruby subprocess verifies that requiring the gem loads only its own
-  files and does not activate other gems, alter ENV/load paths, create threads,
-  or load Rails.
-- A WeakRef test verifies that a completed response does not retain its request
-  environment. Forced GC is used only in tests, never by library code.
-- Real Linux /proc reads exercise memory/status, process lifetime and FDs;
-  failures and unusual process names are covered with test doubles.
-- Syntax checks pass for every Ruby library/test file, the gemspec, Rakefile
-  and scripts under Ruby 3.3.8. This is not a Ruby 2.4 parser check.
-- `gem build` succeeds; the sole warning is the deliberately unspecified
-  homepage. The packaged library is loaded and exercised from an isolated
-  extraction in a fresh subprocess, with no dependency installation.
-- `ruby script/bundler_smoke` passes using installed Bundler 2.5.22 for both
-  automatic Bundler.require loading and explicit require with require: false.
-  Each uses its own temporary path-only Gemfile. Bundler performs its normal
-  local setup and may create a temporary lockfile; the endpoint never reads
-  it. There is no Rails boot, remote source or dependency installation.
-  Bundler warns that these deliberately local-only Gemfiles have no global
-  source; no remote source is added merely to silence that warning.
+Previous coverage remains for request metadata, UTF-8/binary handling, the
+100 KiB body limit, cached bodies, selector ordering/parser limits, permanent
+server-secret omissions, untouched default input streams, full GC/YJIT hashes,
+optional frameworks, failed collectors, error/JSON fallbacks, HEAD, concurrent
+requests, Linux /proc readers and response closure. Secret fixtures are synthetic.
+
+## Other executed checks
+
+- All 26 Ruby library/test files, gemspec/Gemfile/Rakefile and executable scripts
+  passed `ruby -c` under Ruby 3.3.8. This is not a Ruby 2.4 parser check.
+- `gem build rails_runtime_info.gemspec` succeeds. The deliberately unspecified
+  homepage produces a warning; no runtime dependencies were added.
+- The built gem was extracted into a temporary directory and its library loaded
+  in a fresh Ruby subprocess. Both counter paths, missing-counter behavior,
+  version, response status/length and body closure passed there. This used only
+  synthetic server APIs, without installing any gems.
+- `ruby script/bundler_smoke` passes with installed Bundler 2.5.22 for automatic
+  Bundler.require loading and explicit require with require: false. Temporary
+  Gemfiles use only the local path gem. Bundler does normal local resolution
+  and may create a temporary lockfile; the diagnostic endpoint never reads it.
+  Its no-global-source warning is expected. No dependency installation or
+  remote dependency source was used.
 - `git diff --check` passes.
+- Passenger stable-6.0 handler source and the official Puma 5.6.9/8.0.2 source
+  documentation were reviewed for counter semantics. References are in
+  docs/DESIGN.md. Source inspection does not certify runtime compatibility.
 
 ## Explicitly not executed
 
-**Actual Rails integration and Ruby 2.4/2.5 execution have not been tested.**
-Ruby 2.4+ and Rails 5.1+ remain implementation targets, not verified version
-coverage. Synthetic Rails configuration objects do not substitute for real
-applications. Rails/Rack source inspection supports the omission policy, but
-is not an integration test.
+**Actual Rails, Passenger or Puma integration and Ruby 2.4/2.5 execution have
+not been tested.** Ruby 2.4+ and Rails 5.1+ remain implementation targets,
+not verified version coverage. Neither synthetic framework objects nor source
+inspection substitutes for testing a deployed application/server combination.
+Passenger Enterprise's private internals were not inspected or run.
 
 `script/rack_lint` reports Rack unavailable and exits 2. No actual Rack 2/3
-lint run is claimed. No packages were installed to add those environments.
+lint run is claimed. No packages were installed to obtain those environments.
 
-No real Passenger/Puma server, enabled YJIT instance, non-Linux host, ingress
-Basic authentication configuration or deployed Rails middleware chain was
-exercised. No database or external-service checks were performed.
+No real enabled-YJIT instance, non-Linux host, ingress Basic authentication
+configuration or deployed middleware chain was exercised. No database,
+external-service or control-socket checks were performed.
 
 ## Deployment acceptance checks still needed
 
-In an authorized test environment, add the documented explicit require and
-route, then make an authenticated request through the actual proxy/application
-stack. Confirm default output without body capture, plain `what` selections,
-explicit bounded body capture, request ID visibility, absence of the forbidden
-framework keys and a normal
-application request. Verify alternate ingress/backend paths cannot reach the
-endpoint without protection. Confirm proxy body/time limits are appropriate.
+In an authorized test environment, use the existing explicit require and route.
+Request `?what=-all,server,errors` through the protected ingress. Confirm the
+appropriate counter appears for the actual Passenger/Puma version, or is
+omitted without breaking the response when the API is unavailable. Confirm
+ordinary application requests still work and that excluding each counter
+prevents its reader from being called. Do not assume an exact process-wide
+request ordinal, successful completion count or equivalence to passenger-status.
+
+Retain prior checks for default body omission, bounded opt-in body capture,
+request ID visibility and forbidden framework-key omissions. Verify alternate
+ingress/backend paths cannot reach the endpoint without protection, and keep
+appropriate proxy body/time/concurrency limits.
 
 Do not commit live output: HTTP credentials and explicitly requested ENV still
-contain secrets. Test older runtimes and Rails versions before declaring their
-compatibility verified. This record is bounded evidence, not a guarantee
-against arbitrary application monkey patches, middleware, OS failures or
-resource exhaustion.
-
-Earlier validation records are preserved in Git history and tags v0.1.0 and
-v0.2.0. The new runtime behavior is confined to the selector parser/defaults;
-other collectors and permanent omission rules are unchanged.
+contain secrets. Test older runtimes and real Rails/server versions before
+claiming their compatibility. This record is bounded evidence, not a guarantee
+against arbitrary monkey patches, blocking replacement readers, fatal VM
+failures or resource exhaustion. Earlier validation records remain in Git
+history and the v0.1.0, v0.2.0 and v0.2.1 tags.

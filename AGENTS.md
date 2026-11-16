@@ -22,6 +22,15 @@ required.
   queue-adapter construction or autoloading of optional framework constants.
 - No forced GC, compaction, GC tuning, YJIT enable/reset/statistics toggles,
   ObjectSpace traversal, signals, asynchronous timeouts or worker termination.
+- Server counters are passive reads only: Passenger's current handler iteration
+  and Puma::Server.current.requests_count. Do not synthesize or cache counts,
+  scan other threads, acquire server locks, query control sockets, call
+  passenger-status or use broader Puma stats APIs (which can reset metrics).
+  Guard server constants without autoloading and respect dotted field exclusions
+  before accessing readers. Accept only nonnegative Integers. Omit unavailable
+  counters; isolate failed reads under their full errors paths. Do not conflate
+  Passenger's per-thread iteration with process-wide completed requests or
+  Puma's shared worker count with a unique request sequence number.
 - HTTP request headers and explicitly selected ENV values stay unredacted.
   Within request.rack_environment, allow only the documented action_dispatch
   keys; omit all others in that namespace, nested action_dispatch containers,
@@ -78,7 +87,9 @@ objects as proof of full Rails integration compatibility.
 Add focused regression tests for behavior changes. Test absent APIs, nil and
 non-finite statistics, invalid strings, body boundaries, collector failures,
 lazy objects, lack of persistent request retention and normal concurrent use.
-Also test permanent server-secret omissions, bare/signed/nested selector ordering,
+Also test unavailable/raising server APIs, server autoload avoidance, counter
+selection, concurrent handler/server reads and no server-object retention.
+Test permanent server-secret omissions, bare/signed/nested selector ordering,
 query encoding, disabled collectors, and explicit/automatic require behavior.
 The optional script/bundler_smoke uses installed Bundler and temporary local
 path-gem Gemfiles only; it is not a Rails integration test.
@@ -106,3 +117,8 @@ git config user.name 'Jan Seda'
 When asked for a full bundle, commit intended files, include all refs/history,
 verify it, and restore it into an empty location. A bundle is not a working-tree
 archive and does not contain uncommitted files or local Git configuration.
+
+For incremental bundles, explicitly exclude the agreed base commit and include
+the release branch and annotated tag. Verify and apply the bundle to a separate
+clone of that base release; compare HEAD/tree/tag to a full-bundle clone and run
+tests there. Document the prerequisite commit and safe fast-forward commands.

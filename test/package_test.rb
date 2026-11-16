@@ -7,6 +7,11 @@ class PackageTest < Minitest::Test
     Gem::Specification.load(File.expand_path("../rails_runtime_info.gemspec", __dir__))
   end
 
+  def test_release_version_matches_gemspec
+    assert_equal "0.3.0", RailsRuntimeInfo::VERSION
+    assert_equal RailsRuntimeInfo::VERSION, specification.version.to_s
+  end
+
   def test_no_runtime_dependencies_and_ruby_24_target
     spec = specification
     assert_equal [], spec.runtime_dependencies
