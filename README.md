@@ -33,7 +33,7 @@ observed, not required or reconfigured.
 Restore the repository from the supplied full Git bundle:
 
 ```sh
-git clone rails_runtime_info-0.6.0-full.bundle rails_runtime_info
+git clone rails_runtime_info-0.7.0-full.bundle rails_runtime_info
 ```
 
 For an adjacent local checkout, add this to the application's Gemfile in a group
@@ -295,6 +295,14 @@ These are implementation targets, not a claim that every version combination
 has been tested. See [validation](docs/VALIDATION.md) for exactly what was run.
 The application itself must support its chosen Ruby/Rails/Rack combination.
 
+## New in 0.7.0
+
+Basic thread inventory, current-native-thread CPU counters and Linux namespace
+IDs are included by default. Thread backtraces and detailed FD links are opt-in.
+No route changes or new dependencies are required. Cgroup resource reporting
+is deferred in [TODO.md](TODO.md); raw cgroup membership is unchanged. Snapshot
+deltas are not implemented.
+
 ## Collected information
 
 | Section | Contents |
@@ -306,8 +314,8 @@ The application itself must support its chosen Ruby/Rails/Rack combination.
 | `loaded_features`, `load_path` | Copies of `$LOADED_FEATURES` and `$LOAD_PATH`; excluded by default. |
 | `gc` | Complete results of available `GC.stat`, `GC.latest_gc_info` and `GC.stat_heap` calls. |
 | `yjit` | Availability, enabled/statistics flags where supported and the complete available `runtime_stats` result, including `null` when returned by Ruby. |
-| `process` | PID/PPID, user/group IDs, Ruby thread count, CPU time, working directory, program name, arguments and `Etc.uname`. No account-name or hostname lookup is performed. |
-| `process.linux` | `/proc/self/status`, `smaps_rollup`, I/O counters, limits, cgroups, command line, executable link, FD count, estimated process and current native-thread lifetimes, OS release and allocator-library hints. |
+| `process` | PID/PPID, user/group IDs, Ruby thread count, bounded thread inventory, opt-in backtraces, CPU time, working directory, program name, arguments and `Etc.uname`. No account-name or hostname lookup is performed. |
+| `process.linux` | `/proc/self/status`, `smaps_rollup`, I/O counters, limits, raw cgroup membership, command line, executable link, FD count and opt-in link details, namespace link IDs, estimated process/current native-thread lifetimes and current-thread CPU time, OS release and allocator-library hints. |
 | `server` | Rack's server-software value, existing Passenger version information, and optional `passenger.thread_iteration` / `puma.requests_count` readings from the current handler/server. A loaded version constant alone does not prove which server handled the request. |
 | `request` | Method, URI fields, query string, scheme/protocol/address metadata, all available HTTP header values, reconstructed URL, safe Rack-environment snapshot and opt-in bounded raw body. |
 | `errors` | Independently failed collectors, with exception class and best-effort message. |
@@ -398,9 +406,136 @@ For only the current native TID, without reading uptime or obtaining clock ticks
 
 Excluding `process.linux.current_thread` skips native-ID discovery and both task
 stat reads. Excluding its `lifetime` skips the thread's age calculation (the
-independently selected process lifetime may still read uptime). No hooks,
+independently selected process lifetime may still read uptime). The current-thread collector does not enumerate other threads. No hooks,
 server-specific calls, new threads, locks, caches or persistent references to
 Thread objects are added. Source references are in [design notes](docs/DESIGN.md).
+
+### Thread inventory and opt-in backtraces (0.7.0)
+
+`process.threads` contains `total`, `limit`, `truncated`, and `items`. Each item
+has the available `object_id`, `native_tid`, `status` and `name`. At most **256**
+threads are inspected. Names are limited to **1024 bytes**, with
+`name_truncated: true` when shortened. An unnamed thread has a null name; a
+thread that has exited can have false/null status or a null native TID.
+Unsupported readers are omitted, rather than fabricated.
+
+```text
+?what=-all,process.threads,errors
+```
+
+`process.thread_backtraces` is **excluded by default**. It has the same summary
+fields but examines at most **64** threads. Each item has an `object_id` for
+correlation and a `backtrace` object containing `frames`, `frames_truncated`,
+and `frame_text_truncated`. Backtraces have at most **64 frames per thread**,
+and each frame string is limited to **1024 bytes**. A terminated thread can
+have a null backtrace. Truncation is explicit; it is not a complete thread dump.
+
+```text
+?what=-all,process.threads,process.thread_backtraces,errors
+```
+
+The collector calls the bounded core `Thread#backtrace(0, 65)` API, using the
+extra frame to detect truncation. It never retries an unsupported bounded API
+with an unbounded call. This bounds returned data, **not necessarily all work
+or temporary allocation within the Ruby VM**. Backtrace capture is more work
+than inventory and may briefly coordinate with other threads inside the VM.
+Use it for occasional troubleshooting, not polling; there is no hard timeout or
+absolute guarantee against Ruby/native-extension bugs. It never calls join,
+value, wakeup, kill, thread-local readers, or thread-control methods.
+
+For new inventory/backtrace readers, unbound core methods bypass singleton and
+subclass overrides. Ruby-defined or prepended replacements are skipped, not
+called. The thread count now uses the same guarded core `Thread.list`; if it
+is replaced/unavailable, `ruby_threads` is null and the new inventories are
+omitted. Some non-CRuby implementations may consequently provide less data.
+There is no attempt to recover replaced methods or alter the running program.
+Per-field failures appear in `errors` with paths such as
+`process.threads.items.0.name`; other fields and threads remain available.
+Fatal exceptions still propagate.
+
+`Thread.list` allocates an array of all visible Ruby threads even when the
+reported inventory is capped. On CRuby with Ractors this is the **current
+Ractor's threads**, not every Ruby thread or native task in the process. No
+ObjectSpace, task-directory traversal or native thread identification fallback
+is used for the inventory. IDs and statuses can change between reads; native
+TIDs can migrate under M:N threading, and object IDs are not persistent worker
+identifiers. `ruby_threads`, inventory and backtraces are separate samples and
+may disagree. Only copied primitive metadata reaches the response; no Thread,
+UnboundMethod, stack location or enumeration array is retained in it.
+
+The existing array-selection rule applies: `.items` selects the whole array,
+not individual indexes or fields within its rows. Selecting only `.total`
+does not inspect per-thread fields or collect backtraces. Excluding the whole
+thread section skips its enumeration.
+
+### Current native-thread CPU time (0.7.0)
+
+`process.linux.current_thread.cpu_seconds.user` and `.system` are cumulative
+seconds for the native task whose `tid` was sampled. They are **not CPU
+percentages, request CPU time, or the sum across all application threads**.
+They reuse fields 14 and 15 of the existing bounded task-stat read, divided by
+`Etc.sysconf(Etc::SC_CLK_TCK)`. No extra stat-file read or sampling interval is
+introduced. The existing native-ID/task path and thread-self fallback remain.
+
+```text
+?what=-all,process.linux.current_thread,errors
+```
+
+CPU and lifetime calculation fail independently. Bad CPU values leave a valid
+TID/lifetime intact. Selecting `.cpu_seconds` alone skips the age/uptime
+calculation; selecting only `.tid` still skips both age and CPU conversion.
+Under M:N scheduling the values belong to the sampled OS thread, not
+necessarily the complete execution history of a Ruby Thread object.
+
+### FD details and namespace IDs (0.7.0)
+
+`process.linux.fd_details` is **excluded by default**. It contains `limit`,
+`truncated`, and `entries`, a map of descriptor-number strings to symlink
+contents such as `socket:[12345]`, `pipe:[67890]` or `/var/log/app.log`.
+Enumeration stops after **1024 entries plus one lookahead**; the response
+reports truncation and does not claim an exact total. The existing `open_fds`
+count is unchanged and may sample a different instant.
+
+```text
+?what=-all,process.linux.fd_details,errors
+```
+
+Only `/proc/self/fd` directory entries and `readlink` are used. Descriptors are
+never duplicated, opened, read, closed or otherwise operated on. A descriptor
+can close or be reused before its link is read; failed entries become null with
+individual error paths. The enumeration directory's own temporary FD can
+appear and subsequently disappear; an ENOENT error for that entry is normal.
+No socket-address lookup or fdinfo collector is included.
+
+`process.linux.namespaces` is **included by default** when available. It has
+`limit`, `truncated`, and `entries` mapping names (for example `net`, `mnt`,
+`pid`) to `/proc/self/ns/*` link targets. Enumeration is capped at **64** entries
+plus one lookahead; names are discovered rather than assuming a modern kernel.
+A missing directory is omitted, and a failed individual link is isolated.
+These are the process-view/main-thread namespace links, not a promise that
+all worker threads share those namespaces. Compare IDs only within the same
+host/kernel context; they are not globally unique identifiers. Child-namespace
+entries, when present, retain their actual kernel names and semantics.
+
+```text
+?what=-all,process.linux.namespaces,errors
+```
+
+A namespace-specific selector such as
+`process.linux.namespaces.entries.net` reads only that link after enumeration.
+Symlink results are bounded to **4096 bytes**; larger results are reported as
+errors. Symlink targets are never followed. Missing procfs on old kernels or
+unsupported platforms must not prevent unrelated collectors from working.
+The new inventory data is not cached, and no target objects/handles survive
+into the response body.
+
+**Parent rules still reset child exclusions.** `what=all` or `what=process`
+explicitly enables backtraces and FD details, even though default requests omit
+them. To include all other process information without either expensive list:
+
+```text
+?what=-all,process,-process.thread_backtraces,-process.linux.fd_details,errors
+```
 
 ### Passive server counters
 
@@ -456,13 +591,13 @@ See [design notes](docs/DESIGN.md) for source references and
 The initial selection is always:
 
 ```text
-all,-loaded_features,-load_path,-gems,-environment,-request.body
+all,-loaded_features,-load_path,-gems,-environment,-request.body,-process.thread_backtraces,-process.linux.fd_details
 ```
 
 The optional `what` query parameter is a comma-separated sequence applied
 **after those defaults, from left to right**. A bare name includes that section;
 a leading `-` excludes it. An explicit `+` remains accepted for compatibility but
-is unnecessary. `all` enables everything available, including the request body;
+is unnecessary. `all` enables everything available, including the request body, backtraces and FD details;
 `-all` disables everything, including `gem_version`, `time_utc` and `errors`.
 `all` is special only as the whole name.
 A later rule for a parent replaces earlier rules for that parent and its
@@ -711,7 +846,7 @@ RACK_VERSION=2.2.9 ruby script/rack_lint
 
 An optional Bundler-only smoke script verifies both automatic loading via
 `Bundler.require` and explicit loading after `Bundler.setup`, using temporary
-local path-gem Gemfiles, including optional authentication and request delays. It never boots Rails,
+local path-gem Gemfiles, including optional authentication, request delays and inventories. It never boots Rails,
 installs gems, or fetches sources:
 
 ```sh
@@ -732,26 +867,26 @@ A Git bundle carries commits/refs, not the source repository's local Git config.
 
 ### Full and incremental bundles
 
-The full `rails_runtime_info-0.6.0-full.bundle` can be cloned into an empty
-location using the command above. It includes `main`, `v0.6.0` and all previous
+The full `rails_runtime_info-0.7.0-full.bundle` can be cloned into an empty
+location using the command above. It includes `main`, `v0.7.0` and all previous
 history/tags.
 
-The smaller `rails_runtime_info-0.6.0-incremental.bundle` requires the existing
-commit `3495cd372514be72c161a94b947b20e635949672` (v0.5.0) and its history. It
-contains only the new history plus the `main` and `v0.6.0` refs; it cannot be
+The smaller `rails_runtime_info-0.7.0-incremental.bundle` requires the existing
+commit `dc8576fc2757f09f4b9581415981300d298d4b85` (v0.6.0) and its history. It
+contains only the new history plus the `main` and `v0.7.0` refs; it cannot be
 cloned into an empty repository. From a clean existing checkout on the branch
 you intend to update, with the bundle in its parent directory:
 
 ```sh
-git bundle verify ../rails_runtime_info-0.6.0-incremental.bundle
+git bundle verify ../rails_runtime_info-0.7.0-incremental.bundle
 ```
 
 ```sh
-git fetch ../rails_runtime_info-0.6.0-incremental.bundle refs/heads/main refs/tags/v0.6.0:refs/tags/v0.6.0
+git fetch ../rails_runtime_info-0.7.0-incremental.bundle refs/heads/main refs/tags/v0.7.0:refs/tags/v0.7.0
 ```
 
 ```sh
-git merge --ff-only v0.6.0
+git merge --ff-only v0.7.0
 ```
 
 The fast-forward requirement refuses a diverged branch rather than rewriting

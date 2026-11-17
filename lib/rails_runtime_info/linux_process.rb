@@ -4,6 +4,9 @@ module RailsRuntimeInfo
   class LinuxProcess
     SMALL_FILE_LIMIT = 64 * 1024
     MAPS_LIMIT = 2 * 1024 * 1024
+    FD_LIMIT = 1024
+    NAMESPACE_LIMIT = 64
+    LINK_BYTES = 4096
 
     def self.read(path, limit = SMALL_FILE_LIMIT)
       Support.read_file(path, limit)
@@ -24,7 +27,7 @@ module RailsRuntimeInfo
       count
     end
 
-    # Only parse the two fields we need. comm may contain spaces, newlines and
+    # Parse selected fields only. comm may contain spaces, newlines and
     # parentheses, so splitting the whole line on whitespace is not safe.
     def self.parse_stat(text)
       opening = /\A([0-9]+) \(/.match(text)
@@ -37,7 +40,10 @@ module RailsRuntimeInfo
       ticks = Integer(fields.fetch(19), 10) # field 22; state is field 3
       raise ArgumentError, "invalid procfs task ID" unless tid > 0
       raise ArgumentError, "invalid procfs start ticks" unless ticks >= 0
-      { "tid" => tid, "start_ticks_since_boot" => ticks }
+      # Keep CPU fields as raw text until their independently guarded collector
+      # validates them. Bad CPU data must not discard a valid TID or lifetime.
+      { "tid" => tid, "start_ticks_since_boot" => ticks,
+        "user_ticks" => fields[11], "system_ticks" => fields[12] }
     end
 
     def self.start_time
@@ -46,11 +52,7 @@ module RailsRuntimeInfo
 
     def self.lifetime(ticks)
       raise ArgumentError, "invalid procfs start ticks" unless Integer === ticks && ticks >= 0
-      require "etc"
-      ticks_per_second = Etc.sysconf(Etc::SC_CLK_TCK)
-      unless Integer === ticks_per_second && ticks_per_second > 0
-        raise ArgumentError, "invalid SC_CLK_TCK"
-      end
+      ticks_per_second = clock_ticks_per_second
       uptime = Float(read("/proc/uptime").split.fetch(0))
       raise ArgumentError, "invalid procfs uptime" unless uptime.finite? && uptime >= 0
       age = uptime - ticks.to_f / ticks_per_second
@@ -61,6 +63,56 @@ module RailsRuntimeInfo
         "age_seconds" => [age, 0.0].max,
         "started_at_utc_approximate" => Support.utc(Time.now - age)
       }
+    end
+
+    def self.clock_ticks_per_second
+      require "etc"
+      rate = Etc.sysconf(Etc::SC_CLK_TCK)
+      raise ArgumentError, "invalid SC_CLK_TCK" unless Integer === rate && rate > 0
+      rate
+    end
+
+    def self.cpu_seconds(stat)
+      rate = clock_ticks_per_second
+      { "user" => "user_ticks", "system" => "system_ticks" }.each_with_object({}) do |(key, field), result|
+        value = stat.fetch(field)
+        unless String === value && /\A[0-9]+\z/.match(value)
+          raise ArgumentError, "invalid procfs CPU ticks"
+        end
+        seconds = Integer(value, 10).to_f / rate
+        raise ArgumentError, "invalid procfs CPU seconds" unless seconds.finite?
+        result[key] = seconds
+      end
+    end
+
+    # Bound traversal as well as output. Close the directory before readlink;
+    # a sampled FD may disappear or be reused in the meantime. Never open it.
+    def self.directory_names(path, limit, pattern)
+      names = []
+      truncated = false
+      Dir.foreach(path) do |name|
+        next unless pattern.match(name)
+        if names.length == limit
+          truncated = true
+          break
+        end
+        names << name
+      end
+      { "names" => names.sort, "limit" => limit, "truncated" => truncated }
+    end
+
+    def self.fd_names
+      directory_names("/proc/self/fd", FD_LIMIT, /\A[0-9]+\z/)
+    end
+
+    def self.namespace_names
+      directory_names("/proc/self/ns", NAMESPACE_LIMIT, /\A[a-z][a-z0-9_]*\z/)
+    end
+
+    def self.link_target(path)
+      value = File.readlink(path)
+      raise Support::FileTooLarge, "procfs link exceeds #{LINK_BYTES} bytes" if value.bytesize > LINK_BYTES
+      value
     end
 
     def self.current_native_thread_id

@@ -21,7 +21,8 @@ not promised stable.
 | `snapshot.rb` | Request-local orchestration, per-field and per-section exception boundaries, framework/runtime observation. |
 | `normalizer.rb` | Copies safe primitives, guards traversal, avoids application serialization hooks and represents unsupported/binary/non-finite data. |
 | `request_info.rb` | Raw request metadata, reconstructed headers/URL and bounded body capture. |
-| `linux_process.rb` | Bounded /proc readers and limited parsing; no subprocesses or native bindings. |
+| `linux_process.rb` | Bounded /proc readers, CPU/lifetime parsing, bounded descriptor/namespace names and readlink; no target operations, subprocesses or native bindings. |
+| `thread_info.rb` | Guarded core thread enumeration/readers and bounded metadata/backtrace prefixes; no controls, locals or persistent references. |
 | `request_delay.rb` | Stateless, bounded, query-only delay validation; no waiting or collection. |
 | `selection.rb` | Request-local signed selection tree, narrow query parsing, collection guards and in-place JSON projection. |
 | `support.rb` | Non-autoloading constant lookup, class labels, UTC formatting and bounded regular-file reads. |
@@ -223,8 +224,10 @@ inherit the nearest assigned boolean. This gives left-to-right semantics without
 keeping snapshots, query objects or a global rule cache. `all` assigns the root.
 The starting expression is applied first, followed by user rules. Bare names
 include, a leading minus excludes, and an optional plus is accepted for older
-clients. Defaults exclude loaded_features, load_path, gems, environment and
-request.body. Selecting request or all later restores body capture because a
+clients. Defaults exclude loaded_features, load_path, gems, environment, request.body,
+process.thread_backtraces and process.linux.fd_details. Selecting process or all
+restores the expensive process lists. Selecting request or all later restores
+body capture because a
 parent assignment clears earlier descendant rules. Unknown nested names are
 allowed because the output is intentionally not a fixed schema.
 
@@ -333,7 +336,7 @@ any discovery. It captures TID and lifetime separately, so TID-only selection
 skips Etc/uptime, and a failed lifetime calculation leaves the TID intact. The
 normal output projection handles deeper selectors such as lifetime.age_seconds.
 Only this new collector avoids thread enumeration; the existing independent
-process.ruby_threads metric still uses Thread.list.size when selected.
+process.ruby_threads metric uses a guarded Thread.list count when selected.
 
 The result describes the sampled native task, not a portable Ruby Thread birth
 timestamp. M:N scheduling may change the native TID before/after observation;
@@ -345,6 +348,60 @@ thread-local entry, native binding, command or additional dependency is used.
 There is no full smaps fallback when smaps_rollup is unavailable. `/proc/self/maps`
 is scanned only for allocator-library names; it is not returned wholesale and
 cannot identify statically linked allocators or prove active allocation routing.
+
+## Thread and procfs inventory (0.7.0)
+
+The new collectors are request-local. ThreadInfo.list accepts only a core
+Thread singleton list method (no Ruby source location); instance readers are
+obtained as UnboundMethods from Thread or BasicObject, with matching owner and
+no Ruby source location. They bypass per-object/subclass overrides. Globally
+replaced/prepended methods are skipped rather than searching ancestors or
+restoring monkey patches. The same list guard now protects ruby_threads.
+These are conservative availability checks, not proof against arbitrary native
+monkey patches, instrumentation or VM bugs; some engines may return less data.
+
+Snapshot collects summary fields and up to 256 basic entries, or 64 backtrace
+entries when explicitly enabled. Each field has its own capture boundary with
+an indexed error path. The JSON items array is still atomic for selectors.
+Summary-only selection does not obtain/read instance methods. Core Thread.list
+still allocates the entire visible-thread array; limits bound inspection/output,
+not that runtime allocation. Thread objects stay rooted only during collection.
+Names and frame text are copied into bounded 1024-byte prefixes and normalized
+(invalid UTF-8 becomes a Base64 descriptor). Ordinary failures do not discard
+neighboring threads; fatal exceptions propagate normally.
+
+Backtraces call the core bounded API with offset zero and a 65-frame length.
+Only 64 frames are returned, with flags for frame-count/text truncation. There
+is no unbounded retry when an implementation rejects arguments. No locals,
+exception objects, Backtrace::Location objects, source files or native memory
+are inspected. Runtime capture may perform synchronization or more temporary
+allocation than the returned prefix; no hard latency/allocation guarantee is
+made. No gem-issued thread controls, asynchronous timeout, signal or lock is
+introduced. Backtraces remain default-off, not part of routine inventory.
+
+The existing stat parser now also retains raw fields 14/15 in its request-local
+result. Conversion validates them separately in cpu_seconds, so corruption or
+clock failure cannot suppress a valid TID/lifetime. The same native-ID lookup
+and bounded stat read serve both age and CPU counters. CPU conversion does not
+read uptime; TID-only selection invokes neither calculation. Values describe
+the sampled native task; M:N and changing-thread caveats remain.
+
+FD and namespace enumeration use fixed procfs directories, constrained entry
+names, limits of 1024/64 and one lookahead. Directories close before per-link
+reads. File.readlink reads link contents only; it never opens targets, acquires
+descriptor ownership, reads file offsets, resolves socket peers or enters a
+namespace. Individual failures are captured, not retried. Missing directories
+are optional absence. Links longer than 4096 bytes are rejected. Metadata-only
+limit selection skips enumeration, and individual namespace/FD link selection
+skips other readlinks. These caps do not create filesystem timeouts.
+
+Snapshots are not atomic: thread state, IDs, FD reuse and namespace links may
+change while read. Ractor scope and process-view/main-thread namespace scope
+are documented. No collection arrays, Threads, methods, native handles or
+baselines are retained after response serialization. Existing response/body,
+authentication-before-collection, delay, secret omissions and presentation
+order are unchanged. Structured cgroup reporting remains in TODO.md; the old
+raw membership read remains. No snapshot deltas are introduced.
 
 ## Upstream references consulted
 
@@ -402,3 +459,14 @@ Delay references checked for 0.6.0 (documentation/source review):
 
 These document fractional seconds, thread wakeup and scheduler behavior, not
 production Passenger/Puma routing, resource limits or request-timeout handling.
+
+Inventory/CPU/procfs references checked for 0.7.0 (documentation/source review):
+
+- Ruby 2.4 Thread core readers and backtrace entry point: https://docs.ruby-lang.org/en/2.4.0/Thread.html
+- Ruby 3.4 Thread status, native IDs, list and backtrace: https://docs.ruby-lang.org/en/3.4/Thread.html
+- Linux stat fields 14/15 and clock-tick units: https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
+- Linux FD symlink semantics: https://man7.org/linux/man-pages/man5/proc_pid_fd.5.html
+- Linux namespace links and per-thread distinctions: https://man7.org/linux/man-pages/man7/namespaces.7.html
+
+These describe APIs, not a guarantee against runtime bugs or a replacement for
+live deployment testing. No upstream source code has been vendored.

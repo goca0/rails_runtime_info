@@ -73,7 +73,15 @@ root = File.expand_path("..", __dir__)
         invalid_body.close
         abort "invalid delay/selection accepted" unless invalid_status == 400 && JSON.parse(text)["error"] == expected
       end
-      puts "Bundler #{Bundler::VERSION}: #{ENV.fetch('LOAD_MODE')} loading, optional auth and delay passed"
+      inventory_status, _, inventory_body = RailsRuntimeInfo::Endpoint.call("REQUEST_METHOD" => "GET", "QUERY_STRING" => "what=-all,process.threads,process.thread_backtraces,process.linux.current_thread,process.linux.namespaces,errors")
+      text = String.new
+      inventory_body.each { |chunk| text << chunk }
+      inventory_body.close
+      inventory = JSON.parse(text)
+      abort "inventory failed" unless inventory_status == 200 && inventory["errors"].empty?
+      abort "missing thread inventory" unless inventory["process"]["threads"]["items"].any?
+      abort "missing bounded backtrace" unless inventory["process"]["thread_backtraces"]["items"].first["backtrace"].key?("frames")
+      puts "Bundler #{Bundler::VERSION}: #{ENV.fetch('LOAD_MODE')} loading, optional auth/delay and inventories passed"
     CODE
     env = { "BUNDLE_GEMFILE" => gemfile, "RUBYOPT" => nil, "RUBYLIB" => nil, "LOAD_MODE" => mode, "TEST_HTPASSWD" => htpasswd, "BUNDLE_FROZEN" => "false", "BUNDLE_DEPLOYMENT" => "false" }
     output, error, status = Open3.capture3(env, RbConfig.ruby, "-e", program, :chdir => directory)

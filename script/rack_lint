@@ -85,3 +85,20 @@ puts "Rack optional authentication: success, 401, 503 and HEAD passed Rack::Lint
   end
 end
 puts "Rack optional delay: success, 400 and HEAD passed Rack::Lint"
+
+# New bounded inventories, still local Rack calls with no application server.
+queries = ["-all,process.threads,errors", "-all,process.thread_backtraces,errors", "-all,process.linux.current_thread.cpu_seconds,process.linux.namespaces,process.linux.fd_details,errors"]
+queries.each do |expression|
+  env = Rack::MockRequest.env_for("https://app.internal/_internal/diagnostics?what=" + expression)
+  status, headers, body = Rack::Lint.new(RailsRuntimeInfo::Endpoint).call(env)
+  text = String.new
+  begin
+    body.each { |part| text << part }
+  ensure
+    body.close if body.respond_to?(:close)
+  end
+  abort "unexpected inventory status" unless status == 200
+  JSON.parse(text)
+  abort "wrong inventory length" unless headers["content-length"].to_i == text.bytesize
+end
+puts "Rack bounded thread/procfs inventory cases passed Rack::Lint"

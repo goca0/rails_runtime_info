@@ -32,18 +32,20 @@ class ThreadLifetimeTest < Minitest::Test
   end
 
   def with_snapshot_data
-    stat = { "tid" => 123, "start_ticks_since_boot" => 250 }.freeze
+    stat = { "tid" => 123, "start_ticks_since_boot" => 250, "user_ticks" => "0", "system_ticks" => "0" }.freeze
     age = { "start_ticks_since_boot" => 250, "clock_ticks_per_second" => 100,
             "age_seconds" => 10.0, "started_at_utc_approximate" => "2000-01-01T00:00:00.000000Z" }.freeze
     LinuxProcess.stub(:current_thread_stat, stat) do
-      LinuxProcess.stub(:lifetime, age) { yield stat, age }
+      LinuxProcess.stub(:lifetime, age) do
+        LinuxProcess.stub(:cpu_seconds, { "user" => 0.0, "system" => 0.0 }) { yield stat, age }
+      end
     end
   end
 
   def test_native_id_uses_old_kernel_task_directory_without_thread_self
     LinuxProcess.stub(:current_native_thread_id, 123) do
       with_proc_files(TASK_PATH => stat_text) do |reads|
-        assert_equal({ "tid" => 123, "start_ticks_since_boot" => 250 }, LinuxProcess.current_thread_stat)
+        assert_equal({ "tid" => 123, "start_ticks_since_boot" => 250, "user_ticks" => "0", "system_ticks" => "0" }, LinuxProcess.current_thread_stat)
         assert_equal [TASK_PATH], reads
       end
     end
@@ -161,7 +163,7 @@ class ThreadLifetimeTest < Minitest::Test
   end
 
   def test_stat_parser_handles_parentheses_spaces_and_newlines_in_comm
-    assert_equal({ "tid" => 123, "start_ticks_since_boot" => 250 }, LinuxProcess.parse_stat(stat_text(123, 250, "a ) b (\nc")))
+    assert_equal({ "tid" => 123, "start_ticks_since_boot" => 250, "user_ticks" => "0", "system_ticks" => "0" }, LinuxProcess.parse_stat(stat_text(123, 250, "a ) b (\nc")))
     assert_equal 123, LinuxProcess.parse_stat(stat_text(123, 250, ""))["tid"]
     assert_equal 0, LinuxProcess.parse_stat(stat_text(123, 0))["start_ticks_since_boot"]
   end
@@ -214,7 +216,7 @@ class ThreadLifetimeTest < Minitest::Test
     with_snapshot_data do |stat, age|
       status, _, data = thread_response
       assert_equal 200, status
-      assert_equal({ "tid" => stat["tid"], "lifetime" => age }, data["process"]["linux"]["current_thread"])
+      assert_equal({ "tid" => stat["tid"], "lifetime" => age, "cpu_seconds" => { "user" => 0.0, "system" => 0.0 } }, data["process"]["linux"]["current_thread"])
       assert_empty data["errors"]
     end
   end
@@ -229,7 +231,7 @@ class ThreadLifetimeTest < Minitest::Test
   end
 
   def test_whole_thread_deselection_and_all_known_children_deselection_skip_discovery
-    expressions = ["-all,process.pid", "-all,process.linux,-#{PATH}", "-all,#{PATH},-#{PATH}.tid,-#{PATH}.lifetime"]
+    expressions = ["-all,process.pid", "-all,process.linux,-#{PATH}", "-all,#{PATH},-#{PATH}.tid,-#{PATH}.lifetime,-#{PATH}.cpu_seconds"]
     LinuxProcess.stub(:current_thread_stat, proc { raise "must not discover current thread" }) do
       expressions.each do |expression|
         status, _, data = thread_response(expression + ",errors")
@@ -240,7 +242,7 @@ class ThreadLifetimeTest < Minitest::Test
   end
 
   def test_tid_only_skips_lifetime_clock_ticks_and_uptime
-    LinuxProcess.stub(:current_thread_stat, { "tid" => 123, "start_ticks_since_boot" => 250 }) do
+    LinuxProcess.stub(:current_thread_stat, { "tid" => 123, "start_ticks_since_boot" => 250, "user_ticks" => "0", "system_ticks" => "0" }) do
       LinuxProcess.stub(:lifetime, proc { raise "must not calculate lifetime" }) do
         status, _, data = thread_response("-all,#{PATH}.tid,errors")
         assert_equal 200, status
@@ -281,11 +283,13 @@ class ThreadLifetimeTest < Minitest::Test
   end
 
   def test_lifetime_failure_keeps_tid_and_reports_nested_error
-    LinuxProcess.stub(:current_thread_stat, { "tid" => 123, "start_ticks_since_boot" => 250 }) do
+    LinuxProcess.stub(:current_thread_stat, { "tid" => 123, "start_ticks_since_boot" => 250, "user_ticks" => "0", "system_ticks" => "0" }) do
       LinuxProcess.stub(:lifetime, proc { raise Errno::EACCES, "uptime denied" }) do
         status, _, data = thread_response
         assert_equal 200, status
-        assert_equal({ "tid" => 123, "lifetime" => nil }, data["process"]["linux"]["current_thread"])
+        assert_equal 123, data["process"]["linux"]["current_thread"]["tid"]
+        assert_nil data["process"]["linux"]["current_thread"]["lifetime"]
+        assert_equal({ "user" => 0.0, "system" => 0.0 }, data["process"]["linux"]["current_thread"]["cpu_seconds"])
         assert_equal ["#{PATH}.lifetime"], data["errors"].keys
         assert_equal "Errno::EACCES", data["errors"]["#{PATH}.lifetime"]["class"]
       end
@@ -296,7 +300,7 @@ class ThreadLifetimeTest < Minitest::Test
     LinuxProcess.stub(:current_thread_stat, proc { raise SystemExit }) do
       assert_raises(SystemExit) { thread_response }
     end
-    LinuxProcess.stub(:current_thread_stat, { "tid" => 123, "start_ticks_since_boot" => 250 }) do
+    LinuxProcess.stub(:current_thread_stat, { "tid" => 123, "start_ticks_since_boot" => 250, "user_ticks" => "0", "system_ticks" => "0" }) do
       LinuxProcess.stub(:lifetime, proc { raise NoMemoryError }) do
         assert_raises(NoMemoryError) { thread_response }
       end
@@ -338,7 +342,7 @@ class ThreadLifetimeTest < Minitest::Test
   end
 
   def response_with_weak_stat_reference
-    stat = { "tid" => 123, "start_ticks_since_boot" => 250 }
+    stat = { "tid" => 123, "start_ticks_since_boot" => 250, "user_ticks" => "0", "system_ticks" => "0" }
     weak = WeakRef.new(stat)
     rack_response = LinuxProcess.stub(:current_thread_stat, stat) do
       with_constant(Object, :RUBY_PLATFORM, "x86_64-linux-test") do

@@ -41,6 +41,29 @@ required.
   fails, and skip discovery when excluded. TID-only selection must not calculate
   age. Report native task age, not request duration or guaranteed Ruby Thread
   age under M:N scheduling. Never pin threads or retain Thread objects/baselines.
+- Ruby thread inventory uses only core readers, bound rather than dispatched
+  through application Thread instances. Skip Ruby-defined/prepended replacements;
+  do not invoke inspect, join, value, wakeup, kill or locals. The legacy count
+  uses the same guarded list. Cap inventory at 256 threads and names at 1024 bytes.
+  Thread.list itself still enumerates all visible/current-Ractor Ruby threads;
+  neither this nor VM work is guaranteed constant-time or allocation-free.
+- Backtraces are opt-in via process.thread_backtraces, at most 64 threads,
+  64 frames each, 1024 bytes per frame. Call the bounded core backtrace API once
+  with one sentinel frame; never retry without bounds. No stack locals, native
+  frame pointers, timers, thread-control operations or global caches. Isolate
+  errors per field/thread; permit terminated threads. Keep only primitive
+  copied metadata, never Thread, frame/location, reader or array references.
+- Current-thread CPU time reuses stat fields 14/15 and SC_CLK_TCK, separately
+  guarded from age and TID. No extra task-stat read, sampling interval or delta.
+  CPU-only selection must not read uptime; TID-only skips CPU and age conversion.
+- FD link details are opt-in via process.linux.fd_details; cap at 1024 entries
+  plus one lookahead. Namespace links are default-on, capped at 64 plus one.
+  Directory enumeration/readlink only; never open/follow/duplicate/use a target,
+  inspect sockets, or add fdinfo. Bound link text to 4096 bytes. Isolate vanished
+  or denied entries, tolerate reused FDs, close enumeration directories, and
+  omit missing optional directories. Document process-view namespace scope.
+- Keep cgroup resource usage/limits deferred in TODO.md. Preserve only the
+  existing raw cgroup membership text; implement no snapshot-delta sampling.
 - HTTP request headers and explicitly selected ENV values stay unredacted.
   Within request.rack_environment, allow only the documented action_dispatch
   keys; omit all others in that namespace, nested action_dispatch containers,
@@ -86,7 +109,9 @@ required.
   process rerouting, disconnect cancellation or exact elapsed time.
 - The only gem inventory is Gem.loaded_specs; never read a lockfile or resolve
   dependencies. The default selection is exactly
-  all,-loaded_features,-load_path,-gems,-environment,-request.body. Apply user
+  all,-loaded_features,-load_path,-gems,-environment,-request.body,
+  -process.thread_backtraces,-process.linux.fd_details (one expression without
+  whitespace). Apply user
   what rules left to right after that default. Bare names include; - excludes;
   explicit + remains accepted for compatibility. Preserve the documented
   nested/parent-reset semantics and standard query form decoding. Skip excluded
@@ -154,6 +179,14 @@ unsupported files, bounded strict parsing, HEAD/challenge behavior, preservation
 of headers/env, no pre-auth collectors/body reads, file replacement, concurrent
 first digest loading and credential isolation, fatal propagation, and request/
 file lifetime. All test credentials must be synthetic.
+Test bounded thread inventories/backtraces, dead/churning threads, singleton and
+subclass overrides, global reader/list replacements, nil/missing APIs,
+per-field errors, primitive-only retention, and concurrent diagnostics. Verify
+expensive lists are default-off and skipped when excluded, including summary-only
+selectors. Test CPU units, bad ticks and independent age failures; FD/namespace
+limits, missing directories, readlink-only behavior, per-link races, nested
+selection and descriptor cleanup. Keep synthetic tests distinct from live VM/
+procfs tests; do not assert an atomic process-wide snapshot or hard VM deadline.
 Test delay boundaries/duplicates/encoding, auth-before-validation-before-sleep,
 invalid-what rejection before waiting, zero/default no-op, no pre-wait snapshot
 or body reads, all methods/HEAD, unchanged JSON, exceptions and cleanup. Include

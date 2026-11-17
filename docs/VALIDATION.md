@@ -1,5 +1,75 @@
 # Validation record
 
+## Version 0.7.0 - executed on 2026-11-17
+
+Started from the supplied v0.6.0 full bundle, whose SHA-256 matched
+`0890e05aa53e8ac3f6c0be91ed80a15eca12c38e9f633489c66d5d56f0677ca3`, at
+`dc8576fc2757f09f4b9581415981300d298d4b85`. The unchanged baseline passed
+262 tests / 1379 assertions. Prior commits and annotated release tags are
+preserved. This release adds the four agreed diagnostic features; cgroup
+resource reporting is deferred in TODO.md and no snapshot deltas are added.
+
+Executed on Linux 6.18.57 x86_64, CRuby 3.3.8, Minitest 5.20.0, JSON 2.7.2,
+RubyGems 3.6.7 and Bundler 2.5.22. The expanded standalone suite passed
+**309 tests, 1577 assertions, zero failures, errors or skips**, with seeds
+24680 and 43210. There are 47 new tests, plus updates to existing fixtures and
+version/default-selection expectations. Coverage includes:
+
+- Default core thread inventory; dead threads, nil optional IDs, missing APIs,
+  singleton/subclass overrides, Ruby-defined global reader/list replacements,
+  per-thread/per-field failures, unrelated diagnostics and fatal propagation.
+- Inventory and backtrace thread caps, bounded backtrace arguments with exactly
+  one sentinel frame, frame/text truncation, name bounds, no unbounded retry,
+  no arbitrary object coercion, summary-only selection and default-off stacks.
+- Thread-state preservation during concurrent diagnostic requests and natural
+  thread creation/termination. The response does not retain the temporary
+  enumeration array; no Thread objects are serialized. Tests use explicit GC
+  only to check retention; runtime library code never forces collection.
+- CPU fields 14/15 and SC_CLK_TCK conversion, invalid/overflowing data, independent
+  age/CPU failures, CPU-only no-uptime behavior and TID-only no-clock behavior.
+- Bounded directory enumeration with a lookahead, exact-limit semantics, readlink
+  without opening targets, oversize/binary link values, vanished descriptors,
+  unavailable old-kernel namespace directories, permission errors, per-link
+  selection, limit-only no-discovery and non-Linux omission.
+- Live local procfs CPU/namespace/FD observations and repeated directory
+  enumeration without leaked directory descriptors. Transient FD ENOENT is an
+  expected observation, including the enumeration directory's own descriptor.
+- Default-off FD details, explicit parent inclusion, later exclusions and
+  unchanged selection ordering. Failed authentication does not reach any new
+  collector or body reads. Existing auth/delay/request/GC/YJIT tests still pass.
+
+All 38 Ruby library/test/script/build/gemspec files passed ruby -c on Ruby 3.3.8.
+Git diff whitespace checks passed. The gem built without runtime dependencies
+(the existing missing-homepage warning remains). A separately unpacked gem,
+loaded from its own lib directory in a fresh process, passed default inventory,
+opt-in backtraces/FDs, CPU/namespaces, original display order, unread default body,
+SSHA/PLAIN and 401/503 behavior, a real fractional sleep, HEAD and on-close JSON
+release. The packaged TODO and new library file are checked by the test suite.
+
+script/bundler_smoke passed both automatic and explicit require modes using
+already-installed Bundler and temporary source-free local path Gemfiles. It
+now exercises the new inventories alongside authentication and delay. The
+source-free Gemfiles emit Bundler's existing deprecation warning. No dependency
+was installed or fetched. script/rack_lint exited 2 because Rack is unavailable;
+its new inventory cases are present but unexecuted.
+
+Release validation also restores a fresh full-bundle clone and a separate
+v0.6.0 clone fast-forwarded with the incremental bundle, runs the complete suite
+in both, compares release commit/tree/annotated-tag objects, and checks bundle
+prerequisites, clean working trees and git fsck --full --strict. The incremental
+prerequisite is the v0.6.0 commit stated above; it is not an empty-repository
+bundle. No Git identity or remote host is inferred: the owner's configured
+Jan Seda identity is used, and Git bundles do not include local configuration.
+
+Limitations: no Rails app, Passenger/Puma server, dotenv integration, Rack::Lint,
+Ruby 2.4/2.5/3.4, CentOS 6, Ractor or M:N execution was tested. Source/documentation
+review and synthetic old-kernel/missing-API cases are not execution coverage for
+those combinations. Boundaries limit inspection/output, not every allocation or
+synchronization inside the VM, Thread.list, procfs or the filesystem. Backtraces
+are deliberately opt-in. No test proves immunity to VM/native-extension bugs,
+strict response-time limits, atomic snapshots or all possible thread races.
+These remain occasional diagnostics, not a stress profiler or health check.
+
 ## Version 0.6.0 - executed on 2026-11-17
 
 Started from the supplied v0.5.0 full bundle at

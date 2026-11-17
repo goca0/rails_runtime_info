@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
   spec.license = "Nonstandard"
   spec.required_ruby_version = ">= 2.4"
   root = File.expand_path(__dir__)
-  patterns = ["lib/**/*.rb", "README.md", "AGENTS.md", "LICENSE", "CHANGELOG.md", "docs/**/*.md"]
+  patterns = ["lib/**/*.rb", "README.md", "AGENTS.md", "TODO.md", "LICENSE", "CHANGELOG.md", "docs/**/*.md"]
   spec.files = patterns.flat_map { |pattern| Dir[File.join(root, pattern)] }.map { |path| path[(root.length + 1)..-1] }.sort
   spec.require_paths = ["lib"]
   # Private by default. Deliberately do not grant publishing permission here.

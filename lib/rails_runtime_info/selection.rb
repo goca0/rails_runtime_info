@@ -5,7 +5,7 @@ module RailsRuntimeInfo
   # all previous rules below that parent. Never examines application objects.
   class Selection
     CATEGORIES = %w[gem_version time_utc process server gems environment loaded_features load_path errors gc yjit runtime application request].freeze
-    DEFAULT = "all,-loaded_features,-load_path,-gems,-environment,-request.body".freeze
+    DEFAULT = "all,-loaded_features,-load_path,-gems,-environment,-request.body,-process.thread_backtraces,-process.linux.fd_details".freeze
     MAX_BYTES = 8192
     MAX_RULES = 128
     MAX_DEPTH = 24

@@ -11,7 +11,7 @@ class SelectionTest < Minitest::Test
   def test_exact_defaults_and_output_order
     _, _, data = response
     assert_equal %w[gem_version time_utc process server errors gc yjit runtime application request], data.keys
-    assert_equal "all,-loaded_features,-load_path,-gems,-environment,-request.body", RailsRuntimeInfo::Selection::DEFAULT
+    assert_equal "all,-loaded_features,-load_path,-gems,-environment,-request.body,-process.thread_backtraces,-process.linux.fd_details", RailsRuntimeInfo::Selection::DEFAULT
     refute data["request"].key?("body")
   end
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.0
+
+- Add default-on bounded Ruby thread inventory with identity, status, name and
+  available native TID. Bind core readers, bypass object/subclass overrides and
+  skip replaced APIs. Reuse guarded enumeration for the existing thread count.
+- Add opt-in backtraces (64 threads, 64 frames each, 1024-byte text prefixes);
+  use only the bounded core API, with no unbounded fallback, locals or thread
+  controls. Keep metadata/stack failures field-local and results request-local.
+- Add current-native-thread cumulative user/system CPU seconds using the existing
+  stat read, with conversion independent of lifetime and TID. Preserve old-kernel
+  discovery/fallbacks and TID-only no-clock behavior.
+- Add opt-in bounded FD symlink details and default-on namespace link IDs. Use
+  readlink only, isolate vanished/denied entries, report truncation, and never
+  open or operate on link targets. No new dependencies, locks, hooks or caches.
+- Extend defaults to exclude process.thread_backtraces and process.linux.fd_details.
+  Existing left-to-right parent-reset semantics apply, including all/process.
+  Preserve body omission, authentication/delay ordering and display order.
+- Defer structured cgroup limits/usage in packaged TODO.md; existing raw
+  membership output stays unchanged. Do not implement snapshot deltas.
+- Add regression tests and live thread/procfs checks; document bounds, VM cost,
+  Ractor/M:N scope, namespace scope, stale observations and validation gaps.
+
 ## 0.6.0
 
 - Add optional query-only sleep in seconds, default zero and capped at 30.

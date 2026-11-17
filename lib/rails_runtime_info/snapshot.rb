@@ -183,7 +183,12 @@ module RailsRuntimeInfo
       [:pid, :ppid, :uid, :euid, :gid, :egid, :groups].each do |method|
         capture(result, method.to_s, "process.#{method}") { Process.public_send(method) }
       end
-      capture(result, "ruby_threads", "process.ruby_threads") { Thread.list.size }
+      capture(result, "ruby_threads", "process.ruby_threads") do
+        threads = ThreadInfo.list
+        threads && threads.size
+      end
+      collect_threads(result, "threads", false)
+      collect_threads(result, "thread_backtraces", true)
       capture(result, "cpu_seconds", "process.cpu_seconds") do
         times = Process.times
         { "user" => times.utime, "system" => times.stime, "children_user" => times.cutime, "children_system" => times.cstime }
@@ -219,13 +224,15 @@ module RailsRuntimeInfo
       capture(result, "open_fds", "process.linux.open_fds") { LinuxProcess.fd_count }
       capture(result, "lifetime", "process.linux.lifetime") { LinuxProcess.start_time }
       collect_current_thread(result)
+      collect_proc_links(result, "fd_details", "/proc/self/fd", LinuxProcess::FD_LIMIT) { LinuxProcess.fd_names }
+      collect_proc_links(result, "namespaces", "/proc/self/ns", LinuxProcess::NAMESPACE_LIMIT) { LinuxProcess.namespace_names }
       capture(result, "allocator_library_hints", "process.linux.allocator_library_hints") { LinuxProcess.allocator_hints }
       result
     end
 
     def collect_current_thread(target)
       path = "process.linux.current_thread"
-      return unless @selection.requested?("#{path}.tid") || @selection.requested?("#{path}.lifetime")
+      return unless %w[tid lifetime cpu_seconds].any? { |key| @selection.requested?("#{path}.#{key}") }
       stat = LinuxProcess.current_thread_stat
       return unless stat
       result = {}
@@ -233,9 +240,80 @@ module RailsRuntimeInfo
       capture(result, "lifetime", "#{path}.lifetime") do
         LinuxProcess.lifetime(stat.fetch("start_ticks_since_boot"))
       end
+      capture(result, "cpu_seconds", "#{path}.cpu_seconds") { LinuxProcess.cpu_seconds(stat) }
       target["current_thread"] = result
     rescue StandardError, LoadError, NotImplementedError => error
       target["current_thread"] = nil
+      @errors[path] = error_description(error)
+    end
+
+    def collect_threads(target, key, backtraces)
+      path = "process.#{key}"
+      return unless @selection.requested?(path)
+      threads = ThreadInfo.list
+      return unless threads
+      limit = backtraces ? ThreadInfo::BACKTRACE_THREAD_LIMIT : ThreadInfo::INVENTORY_LIMIT
+      result = { "total" => threads.size, "limit" => limit, "truncated" => threads.size > limit }
+      if @selection.requested?("#{path}.items")
+        readers = {}
+        methods = backtraces ? [:__id__, :backtrace] : [:__id__, :name, :status, :native_thread_id]
+        methods.each { |name| readers[name] = ThreadInfo.reader(name) }
+        result["items"] = threads.first(limit).each_with_index.map do |thread, index|
+          thread_entry(thread, readers, "#{path}.items.#{index}", backtraces)
+        end
+      end
+      target[key] = result
+    rescue StandardError, LoadError, NotImplementedError => error
+      target[key] = nil
+      @errors[path] = error_description(error)
+    end
+
+    def thread_entry(thread, readers, path, backtraces)
+      result = {}
+      { "object_id" => :__id__, "native_tid" => :native_thread_id, "status" => :status }.each do |key, method|
+        reader = readers[method]
+        next unless reader
+        capture(result, key, "#{path}.#{key}") { ThreadInfo.read(reader, thread) }
+      end
+      if readers[:name]
+        capture(result, "name", "#{path}.name") do
+          value = ThreadInfo.read(readers[:name], thread)
+          unless value.nil?
+            prefix, truncated = ThreadInfo.text(value)
+            result["name_truncated"] = true if truncated
+            prefix
+          end
+        end
+      end
+      if backtraces && readers[:backtrace]
+        capture(result, "backtrace", "#{path}.backtrace") { ThreadInfo.backtrace(readers[:backtrace], thread) }
+      end
+      result
+    end
+
+    def collect_proc_links(target, key, directory, limit)
+      path = "process.linux.#{key}"
+      return unless @selection.requested?(path)
+      result = { "limit" => limit }
+      if @selection.requested?("#{path}.entries") || @selection.requested?("#{path}.truncated")
+        begin
+          listing = yield
+        rescue Errno::ENOENT, Errno::ENOTDIR
+          return # Optional procfs facility, notably on older kernels.
+        end
+        result["truncated"] = listing.fetch("truncated")
+        if @selection.requested?("#{path}.entries")
+          result["entries"] = {}
+          listing.fetch("names").each do |name|
+            capture(result["entries"], name, "#{path}.entries.#{name}") do
+              LinuxProcess.link_target("#{directory}/#{name}")
+            end
+          end
+        end
+      end
+      target[key] = result
+    rescue StandardError, LoadError, NotImplementedError => error
+      target[key] = nil
       @errors[path] = error_description(error)
     end
 
