@@ -5,10 +5,10 @@ module RailsRuntimeInfo
     CONFIG_FIELDS = %w[eager_load cache_classes enable_reloading time_zone force_ssl log_level].freeze
     DEPLOYMENT_KEYS = %w[APP_NAME APP_VERSION APP_REVISION APP_BUILD_TIME RELEASE_VERSION RELEASE_SHA GIT_COMMIT SOURCE_VERSION].freeze
 
-    def initialize(env)
+    def initialize(env, selection = nil)
       @env = env
       @errors = {}
-      @selection = Selection.new(env["QUERY_STRING"])
+      @selection = selection || Selection.new(env["QUERY_STRING"])
     end
 
     def document

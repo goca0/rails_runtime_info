@@ -8,7 +8,7 @@ class PackageTest < Minitest::Test
   end
 
   def test_release_version_matches_gemspec
-    assert_equal "0.5.0", RailsRuntimeInfo::VERSION
+    assert_equal "0.6.0", RailsRuntimeInfo::VERSION
     assert_equal RailsRuntimeInfo::VERSION, specification.version.to_s
   end
 
@@ -21,7 +21,7 @@ class PackageTest < Minitest::Test
 
   def test_documentation_and_implementation_are_packaged
     spec = specification
-    %w[README.md AGENTS.md LICENSE lib/rails_runtime_info.rb lib/rails_runtime_info/basic_auth.rb lib/rails_runtime_info/htpasswd.rb docs/DESIGN.md].each do |file|
+    %w[README.md AGENTS.md LICENSE lib/rails_runtime_info.rb lib/rails_runtime_info/basic_auth.rb lib/rails_runtime_info/htpasswd.rb lib/rails_runtime_info/request_delay.rb docs/DESIGN.md].each do |file|
       assert_includes spec.files, file
     end
     refute spec.files.any? { |file| file.start_with?("/", "test/", ".git/") }

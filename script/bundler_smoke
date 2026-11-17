@@ -54,7 +54,26 @@ root = File.expand_path("..", __dir__)
       auth_status, _, auth_body = unavailable.call("REQUEST_METHOD" => "GET")
       abort "missing config not closed" unless auth_status == 503
       auth_body.close
-      puts "Bundler #{Bundler::VERSION}: #{ENV.fetch('LOAD_MODE')} loading and optional auth passed"
+      [nil, "alice:sample-pass"].each do |credentials|
+        delay_env = { "QUERY_STRING" => "what=-all&sleep=0.002", "REQUEST_METHOD" => "GET" }
+        delay_env["HTTP_AUTHORIZATION"] = "Basic " + [credentials].pack("m0") if credentials
+        target = credentials ? guarded : RailsRuntimeInfo::Endpoint
+        started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        delay_status, _, delay_body = target.call(delay_env)
+        elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+        text = String.new
+        delay_body.each { |chunk| text << chunk }
+        delay_body.close
+        abort "delay failed" unless delay_status == 200 && JSON.parse(text) == {} && elapsed >= 0.0018
+      end
+      [["sleep=31", "invalid_sleep"], ["sleep=1&what=unknown", "invalid_what"]].each do |query, expected|
+        invalid_status, _, invalid_body = RailsRuntimeInfo::Endpoint.call("REQUEST_METHOD" => "GET", "QUERY_STRING" => query)
+        text = String.new
+        invalid_body.each { |chunk| text << chunk }
+        invalid_body.close
+        abort "invalid delay/selection accepted" unless invalid_status == 400 && JSON.parse(text)["error"] == expected
+      end
+      puts "Bundler #{Bundler::VERSION}: #{ENV.fetch('LOAD_MODE')} loading, optional auth and delay passed"
     CODE
     env = { "BUNDLE_GEMFILE" => gemfile, "RUBYOPT" => nil, "RUBYLIB" => nil, "LOAD_MODE" => mode, "TEST_HTPASSWD" => htpasswd, "BUNDLE_FROZEN" => "false", "BUNDLE_DEPLOYMENT" => "false" }
     output, error, status = Open3.capture3(env, RbConfig.ruby, "-e", program, :chdir => directory)

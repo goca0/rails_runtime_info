@@ -34,7 +34,12 @@ module RailsRuntimeInfo
     def self.serialized_response(env)
       require "json"
       begin
-        document = Snapshot.new(env).document
+        # The optional auth wrapper calls us only after successful verification.
+        # Validate both controls before waiting; allocate the snapshot afterward.
+        selection = Selection.new(env["QUERY_STRING"])
+        seconds = RequestDelay.seconds(env["QUERY_STRING"])
+        Kernel.sleep(seconds) if seconds > 0
+        document = Snapshot.new(env, selection).document
         status = 200
       rescue Selection::Invalid => error
         # Parse selectors before collecting diagnostics or reading rack.input.
@@ -46,6 +51,9 @@ module RailsRuntimeInfo
           "default_what" => Selection::DEFAULT,
           "categories" => Selection::CATEGORIES
         }
+      rescue RequestDelay::Invalid => error
+        status = 400
+        document = { "error" => "invalid_sleep", "message" => error.message }
       end
       [status, JSON.pretty_generate(document) + "\n"]
     end

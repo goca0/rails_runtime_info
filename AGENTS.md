@@ -70,6 +70,20 @@ required.
   credentials and parsed files must not be retained. No user sessions, rate
   limits or global interception. Digest comparisons visit all fixed-size bytes;
   do not promise whole-request constant timing or secure memory wiping.
+- Optional sleep is query-only: exactly one form-decoded sleep value, unsigned
+  ASCII decimal, 0..30 seconds inclusive, at most 64 decoded bytes. Reject
+  duplicates, empty/malformed/signed/non-finite/excessive values with 400. Check
+  the exact decimal upper bound before Float conversion. Do not coerce invalid
+  values to zero or use Rack/Rails params. Unrelated values remain uninterpreted.
+- Authenticate first when enabled; validate both what and sleep before any wait.
+  Sleep once through Kernel.sleep only for positive seconds, before Snapshot
+  construction/collection. Reuse the validated Selection, with no reparse after
+  waiting. Invalid requests/auth failures must never wait, collect or read input.
+  No default delay, sleep in Body, busy loop, timer, extra thread, lock, hooks,
+  retries or scheduler changes. Add no sleep field to JSON. Preserve query echo,
+  HEAD and existing response-body lifetime. Ordinary sleep failures use the
+  existing 500 boundary; fatal exceptions propagate. Do not promise forced
+  process rerouting, disconnect cancellation or exact elapsed time.
 - The only gem inventory is Gem.loaded_specs; never read a lockfile or resolve
   dependencies. The default selection is exactly
   all,-loaded_features,-load_path,-gems,-environment,-request.body. Apply user
@@ -96,7 +110,9 @@ required.
   or global error stores.
 
 "Read-only" means no intentional application mutation, not zero allocation,
-zero observer overhead, or a guarantee that RSS falls after a request. Preserve
+zero observer overhead, or a guarantee that RSS falls after a request. An
+explicit sleep deliberately consumes request-serving capacity; document it as
+an opt-in diagnostic side effect, not a passive observation. Preserve
 this distinction in documentation.
 
 ## Development workflow
@@ -138,6 +154,11 @@ unsupported files, bounded strict parsing, HEAD/challenge behavior, preservation
 of headers/env, no pre-auth collectors/body reads, file replacement, concurrent
 first digest loading and credential isolation, fatal propagation, and request/
 file lifetime. All test credentials must be synthetic.
+Test delay boundaries/duplicates/encoding, auth-before-validation-before-sleep,
+invalid-what rejection before waiting, zero/default no-op, no pre-wait snapshot
+or body reads, all methods/HEAD, unchanged JSON, exceptions and cleanup. Include
+concurrent delayed/no-delay requests and a small real fractional sleep. Tests
+may use controlled stubs/barriers but must distinguish them from live servers.
 Do not add live diagnostic output or real secrets to fixtures. Keep commands
 on one physical line; longer Ruby source files may use normal multiline style.
 

@@ -33,7 +33,7 @@ observed, not required or reconfigured.
 Restore the repository from the supplied full Git bundle:
 
 ```sh
-git clone rails_runtime_info-0.5.0-full.bundle rails_runtime_info
+git clone rails_runtime_info-0.6.0-full.bundle rails_runtime_info
 ```
 
 For an adjacent local checkout, add this to the application's Gemfile in a group
@@ -84,7 +84,7 @@ but no response body. There is no application-controller authentication, CSRF
 handling or Rails/Rack request-parameter parsing in this gem. Existing application
 middleware and outer route constraints still apply and can reject or modify a
 request first.
-The gem reads only its own `what` query parameter; it does not invoke Rails/Rack
+The gem interprets only its own `what` and `sleep` query parameters; it does not invoke Rails/Rack
 parameter parsing or parse the request body.
 
 Normal Bundler installation and application restart/deployment procedures still
@@ -197,7 +197,7 @@ the file; file problems become 503 on a well-formed credential attempt. Invalid
 route configuration itself returns 503 immediately. Both rejections use
 `Cache-Control: no-store`, lowercase Rack headers and an empty body for HEAD.
 All HTTP methods are authenticated. Rejected requests do not run collectors,
-parse `what`, or read `rack.input`. Fatal exceptions are not swallowed.
+parse `what` or `sleep`, wait, or read `rack.input`. Fatal exceptions are not swallowed.
 
 Only `HTTP_AUTHORIZATION` is used; proxy headers, `REMOTE_USER` and query/body
 values cannot authorize access. Successful authentication neither rewrites the
@@ -219,6 +219,69 @@ not a password-storage recommendation. Avoid reused credentials. The wrapper
 retains only immutable route configuration and the endpoint class. Parsed file
 contents and decoded credentials become eligible for ordinary GC after checking;
 there is no forced GC or guaranteed secure memory wiping.
+
+## Optional request delay (0.6.0)
+
+Add `sleep=N` to deliberately keep a diagnostic request in progress, helping
+occupy request-handling slots while sending other diagnostic requests:
+
+```text
+/_internal/diagnostics?sleep=15
+/_internal/diagnostics?what=-all,process,server,runtime&sleep=0.5
+```
+
+No route change or initializer is needed. It works with both the bare endpoint
+and the optional Basic-auth wrapper. The order is **authenticate (when enabled),
+validate `what` and `sleep`, sleep, collect diagnostics, serialize, respond**.
+Both parameters are fully validated before waiting, regardless of their query
+order. Invalid `what` still returns `invalid_what`; invalid `sleep` returns
+HTTP **400** with `error: "invalid_sleep"`. Authentication rejections still
+return 401/503 before any query validation, sleep or collection.
+
+The parameter is query-string-only, not a request-body field or header. Its
+case-sensitive, form-decoded name is exactly `sleep`. Repeated parameters,
+including percent-encoded spellings of that name, are rejected rather than
+summed or resolved by first/last value.
+
+| Value | Behavior |
+| --- | --- |
+| Absent, `0` or `0.0` | No sleep call. Ordinary requests have no deliberate delay. |
+| `0.5`, `5`, `15`, `30` | One `Kernel.sleep` call before snapshot construction. |
+| Empty, negative, signed, malformed, non-finite or above 30 | 400 without sleeping, collecting diagnostics or reading `rack.input`. |
+
+Values must be unsigned ASCII decimal integers or fractions with digits on both
+sides of the decimal point; leading zeros are accepted. For example `.5`, `1.`,
+`+1`, surrounding whitespace, `1e1`, `NaN` and `Infinity` are rejected. The limit
+is **30 seconds inclusive** and the decoded value is limited to **64 bytes**.
+The exact decimal bound is checked before floating-point conversion, so a value
+fractionally above 30 cannot slip through rounding. Unrelated query values are
+not decoded. Existing `what` defaults and selection semantics are unchanged.
+
+No snapshot or JSON response is allocated until after sleeping. The existing
+request environment and small validated selection remain live while the request
+is waiting; there is no persistent delay state, timer, extra thread or lock.
+Diagnostics, including timestamps and counters, describe the state **after** the
+wait. No `request.sleep_seconds` or other dedicated delay field is added. The
+original query string remains visible wherever existing request output includes
+it. HEAD and other permitted methods obey the same delay; HEAD still has no body.
+
+**This deliberately consumes serving capacity; it is not a process-routing
+API.** With an ordinary thread-per-request server, one sleeping request occupies
+one request thread, not every thread in that PID. Other threads in a Puma worker
+can still serve requests. A single-threaded Passenger worker can be kept busy,
+but another worker must exist or be spawnable; otherwise additional requests can
+queue. A Ruby fiber scheduler may handle sleep cooperatively instead of tying up
+an entire native thread. No scheduler, server routing or worker settings are
+changed, and a different PID is not guaranteed.
+
+Keep the endpoint protected and keep delays below your client/proxy/server
+request timeouts. Thirty seconds is a per-request requested-delay cap, not a
+concurrency limit or a hard bound on total response time. Many overlapping
+requests can exhaust serving capacity. Scheduling or explicit thread wakeups can
+change actual elapsed time. Disconnecting the client is **not** a cancellation
+mechanism: the application may continue sleeping/collecting until the server
+notices. No disconnect watcher, busy loop, timeout override or retrying sleep is
+introduced.
 
 ## Compatibility
 
@@ -598,6 +661,9 @@ loaded, some standard-library activation can persist after the first diagnostic
 request, collection/serialization allocates objects and consumes CPU, files may
 acquire access-time changes, and reading the request body advances its stream.
 Optional authentication also reads its password file and performs digest work.
+An explicitly requested `sleep` deliberately occupies serving capacity before
+collection; it is the only intentional delay feature and is never enabled by
+default.
 Normal allocations can trigger ordinary GC/JIT activity. Kernel accounting and
 some runtime accessors also perform work. These are not hidden guarantees of
 zero overhead or zero initialization inside Ruby itself.
@@ -645,7 +711,7 @@ RACK_VERSION=2.2.9 ruby script/rack_lint
 
 An optional Bundler-only smoke script verifies both automatic loading via
 `Bundler.require` and explicit loading after `Bundler.setup`, using temporary
-local path-gem Gemfiles, including optional authentication. It never boots Rails,
+local path-gem Gemfiles, including optional authentication and request delays. It never boots Rails,
 installs gems, or fetches sources:
 
 ```sh
@@ -666,28 +732,29 @@ A Git bundle carries commits/refs, not the source repository's local Git config.
 
 ### Full and incremental bundles
 
-The full `rails_runtime_info-0.5.0-full.bundle` can be cloned into an empty
-location using the command above. It includes `main`, `v0.5.0` and all previous
+The full `rails_runtime_info-0.6.0-full.bundle` can be cloned into an empty
+location using the command above. It includes `main`, `v0.6.0` and all previous
 history/tags.
 
-The smaller `rails_runtime_info-0.5.0-incremental.bundle` requires the existing
-commit `79e0e37a72d251097c1ae8ed9d1af6822d15bca6` (v0.4.1) and its history. It
-contains only the new history plus the `main` and `v0.5.0` refs; it cannot be
+The smaller `rails_runtime_info-0.6.0-incremental.bundle` requires the existing
+commit `3495cd372514be72c161a94b947b20e635949672` (v0.5.0) and its history. It
+contains only the new history plus the `main` and `v0.6.0` refs; it cannot be
 cloned into an empty repository. From a clean existing checkout on the branch
 you intend to update, with the bundle in its parent directory:
 
 ```sh
-git bundle verify ../rails_runtime_info-0.5.0-incremental.bundle
+git bundle verify ../rails_runtime_info-0.6.0-incremental.bundle
 ```
 
 ```sh
-git fetch ../rails_runtime_info-0.5.0-incremental.bundle refs/heads/main refs/tags/v0.5.0:refs/tags/v0.5.0
+git fetch ../rails_runtime_info-0.6.0-incremental.bundle refs/heads/main refs/tags/v0.6.0:refs/tags/v0.6.0
 ```
 
 ```sh
-git merge --ff-only v0.5.0
+git merge --ff-only v0.6.0
 ```
 
 The fast-forward requirement refuses a diverged branch rather than rewriting
 local work. Existing bare-endpoint routes stay unauthenticated; protection is
-only enabled by explicitly using the new route wrapper.
+only enabled by explicitly using the route wrapper. Sleep is zero by default
+and can only be requested through the diagnostic query string.

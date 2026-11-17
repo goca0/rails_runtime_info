@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0
+
+- Add optional query-only sleep in seconds, default zero and capped at 30.
+  Accept unsigned decimal integers/fractions; reject duplicate, malformed,
+  signed, non-finite and excessive values with 400 invalid_sleep. Bound the
+  value length and check the exact decimal limit before float conversion.
+- Authenticate first, validate both what and sleep, then wait once before
+  snapshot construction. Invalid requests do not wait or collect; zero/absent
+  sleep never calls Kernel.sleep. Reuse the already-validated selection.
+- Preserve default selection, body omission, auth behavior, query echo and JSON
+  fields. Do not add request.sleep_seconds. No persistent state, timers, locks,
+  extra threads, busy waits or changes to unrelated routes.
+- Add validation, ordering, authentication, concurrency, memory-lifetime and
+  fractional-wait tests; document capacity/routing, fiber-scheduler, timeout and
+  disconnect limitations. Extend standalone Bundler and optional Rack checks.
+
 ## 0.5.0
 
 - Add opt-in Endpoint.basic_auth(htpasswd: path, realm: ...) returning a

@@ -63,3 +63,25 @@ Dir.mktmpdir("rails-runtime-info-lint-") do |directory|
   end
 end
 puts "Rack optional authentication: success, 401, 503 and HEAD passed Rack::Lint"
+
+# Query-only delay and its rejection paths; no network/server process needed.
+["GET", "HEAD"].each do |method|
+  [["what=-all&sleep=0.001", 200], ["sleep=31", 400], ["sleep=1&sleep=2", 400], ["sleep=1&what=unknown", 400]].each do |query, expected|
+    env = Rack::MockRequest.env_for("https://app.internal/_internal/diagnostics?" + query, :method => method)
+    status, headers, body = Rack::Lint.new(RailsRuntimeInfo::Endpoint).call(env)
+    text = String.new
+    begin
+      body.each { |part| text << part }
+    ensure
+      body.close if body.respond_to?(:close)
+    end
+    abort "unexpected delay status #{status}" unless status == expected
+    if method == "HEAD"
+      abort "delay HEAD has a body" unless text.empty?
+    else
+      JSON.parse(text)
+      abort "wrong delay length" unless headers["content-length"].to_i == text.bytesize
+    end
+  end
+end
+puts "Rack optional delay: success, 400 and HEAD passed Rack::Lint"

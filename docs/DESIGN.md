@@ -14,7 +14,7 @@ not promised stable.
 
 | Component | Responsibility |
 | --- | --- |
-| `endpoint.rb` | Deferred JSON require, top-level ordinary-failure fallback, Rack headers and HEAD handling. |
+| `endpoint.rb` | Deferred JSON require, validation-before-delay-before-snapshot orchestration, ordinary-failure fallback, Rack headers and HEAD handling. |
 | `basic_auth.rb` | Immutable opt-in route wrapper, strict bounded Basic parsing, generic fail-closed responses and authentication-before-collection. |
 | `htpasswd.rb` | Request-local bounded password-file validation and SSHA/PLAIN verification; no cache or non-stdlib dependencies. |
 | `body.rb` | Enumerable Rack body retaining only serialized JSON; idempotent release on close. |
@@ -22,6 +22,7 @@ not promised stable.
 | `normalizer.rb` | Copies safe primitives, guards traversal, avoids application serialization hooks and represents unsupported/binary/non-finite data. |
 | `request_info.rb` | Raw request metadata, reconstructed headers/URL and bounded body capture. |
 | `linux_process.rb` | Bounded /proc readers and limited parsing; no subprocesses or native bindings. |
+| `request_delay.rb` | Stateless, bounded, query-only delay validation; no waiting or collection. |
 | `selection.rb` | Request-local signed selection tree, narrow query parsing, collection guards and in-place JSON projection. |
 | `support.rb` | Non-autoloading constant lookup, class labels, UTC formatting and bounded regular-file reads. |
 
@@ -97,6 +98,47 @@ restrictions remain the operator's responsibility. SSHA/PLAIN are compatibility
 choices, not a recommendation for modern password storage. Tests are standalone
 and do not claim nginx, Rails or Puma integration validation.
 
+## Optional request delay (0.6.0)
+
+Endpoint, not the response body or authentication wrapper, owns the delay.
+An opted-in BasicAuth wrapper must authenticate successfully before calling it.
+Endpoint constructs the Selection, parses RequestDelay.seconds, and calls
+Kernel.sleep once only for a positive value. Only then does it construct a
+Snapshot with the already-validated selection and collect/serialize diagnostics.
+Standalone Snapshot callers may still omit the selection argument; the endpoint
+never reparses what after sleeping. Invalid what wins if both controls are bad.
+
+RequestDelay scans only QUERY_STRING using the same ampersand/form-decoding
+convention as Selection. A separate small parser keeps existing what behavior
+unchanged; no generic Rack/Rails params or request-body parser is introduced.
+It returns zero when absent. Exactly one sleep value is permitted; an encoded
+key is equivalent to its literal spelling. Unrelated values are ignored.
+
+Accepted values match `[0-9]+(?:\.[0-9]+)?` in full, are at most 64 decoded bytes
+(192 encoded bytes as an initial bound), and lie in 0..30 seconds inclusive.
+Empty, signed, whitespace-padded, exponent and non-finite forms are rejected.
+The integer part and any nonzero fractional part at 30 are checked before float
+conversion, avoiding acceptance of an out-of-range decimal rounded down to 30.
+A valid bounded decimal cannot overflow to infinity. No eval, external gem,
+BigDecimal activation, global configuration or permissive to_f parsing is used.
+
+RequestDelay::Invalid produces static-shape 400 JSON with error invalid_sleep
+and an explanatory message containing no supplied value. Both validation error
+paths return before sleeping, Snapshot construction, collector calls or input
+reads. Sleep failures fall through the existing ordinary 500 boundary; fatal
+exceptions propagate. No ensure clause introduces an extra or delayed sleep.
+Neither Body#each nor Body#close waits. The response schema has no added sleep
+field; the raw query echo is unchanged.
+
+The ordinary Kernel.sleep operation intentionally occupies a request slot but
+releases execution to other work. It is not a guarantee of process-wide
+occupancy, another PID, exactly measured elapsed time, or a complete timeout
+budget. Fiber schedulers can supply cooperative sleep. No server locks, busy
+loop, instrumentation, thread creation, wakeup retry, connection watcher or
+scheduler override is used. The caller's env and small selection stay live
+while waiting; diagnostics and response JSON are allocated afterward. All delay
+state is request-local and expires with the request, with normal GC semantics.
+
 ## Rails is optional, and initialization is deliberately avoided
 
 Calling `Rails.application` can instantiate the application's singleton.
@@ -169,7 +211,7 @@ returned. Failure formatting has its own fallback.
 The last-resort JSON response is a constant literal so a broken or missing JSON
 serializer cannot recursively break its own error handler. It uses status 500.
 A partial successful diagnostic snapshot uses 200, even when some collectors
-failed. Invalid `what` uses 400 before collectors run. JSON generation of that
+failed. Invalid `what` or `sleep` uses 400 before waiting or collectors run. JSON generation of that
 error is also inside the last-resort boundary. No status asserts application
 health. The `errors` category can be explicitly deselected like any other key.
 
@@ -190,7 +232,8 @@ Only exact form-decoded `what` keys are used. URI decoding is loaded on demand;
 no request parameter object is constructed. Bare names need no plus-sign
 encoding; legacy encoded plus signs remain valid. Literal plus signs decode to
 spaces, which are permitted around tokens. Repeated values retain wire order.
-Selector size/count/depth limits bound tree growth. Unrelated query values are never decoded.
+Selector size/count/depth limits bound tree growth. This parser never decodes
+unrelated query values; sleep is handled separately by RequestDelay.
 
 Top-level sections and independently collected fields consult the selection
 before evaluating their blocks. In particular a disabled body is never read;
@@ -351,3 +394,11 @@ Authentication references checked for 0.5.0 (documentation/source review):
 These references establish format/interoperability context; this implementation
 intentionally rejects duplicate users, empty passwords, unsupported schemes and
 malformed whole files instead of emulating every permissive nginx behavior.
+
+Delay references checked for 0.6.0 (documentation/source review):
+
+- Ruby 2.4 Kernel.sleep: https://docs.ruby-lang.org/en/2.4.0/Kernel.html#method-i-sleep
+- Ruby 3.4 Kernel.sleep and fiber-scheduler delegation: https://docs.ruby-lang.org/en/3.4/Kernel.html#method-i-sleep
+
+These document fractional seconds, thread wakeup and scheduler behavior, not
+production Passenger/Puma routing, resource limits or request-timeout handling.

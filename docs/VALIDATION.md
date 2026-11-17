@@ -1,5 +1,74 @@
 # Validation record
 
+## Version 0.6.0 - executed on 2026-11-17
+
+Started from the supplied v0.5.0 full bundle at
+`3495cd372514be72c161a94b947b20e635949672`. Both supplied v0.5.0 bundle
+checksums matched. The unchanged baseline passed 231 tests / 1173 assertions.
+All prior history and annotated release tags are preserved.
+
+Executed on Linux 6.18.57 x86_64, MRI Ruby 3.3.8, Minitest 5.20.0, JSON 2.7.2,
+RubyGems 3.6.7 and Bundler 2.5.22. The updated standalone suite passed
+**262 tests, 1379 assertions, zero failures, errors or skips**, with seeds
+24680 and 43210. There are 31 new tests covering:
+
+- Missing/zero no-op; unsigned decimal integers/fractions; inclusive 30-second
+  limit; exact-decimal rejection just above 30 even when Float would round it
+  down; tiny positive values; invalid signs, exponent syntax and non-finite
+  text; empty values; strict percent decoding and decoded/encoded size bounds.
+- Repeated sleep values, including encoded key aliases, are rejected. Unrelated
+  malformed values stay uninterpreted; unknown query objects are not coerced.
+- Authentication-before-validation-before-sleep-before-Snapshot ordering;
+  validation of both controls before waiting; reuse of the validated Selection.
+  Missing/wrong/malformed credentials and unavailable auth never reach parsing,
+  sleep, collectors or body input. Authenticated bad controls return 400.
+- Invalid what in either query order prevents waiting and collection. Sleep is
+  query-only, never sourced from headers, form caches or request body. Default
+  bodies remain unread and explicitly selected bodies are collected after wait.
+- Exactly one positive sleep call, never from response-body iteration/close.
+  HEAD and other methods obey the delay without changing HEAD body handling.
+  Original query/Authorization echo, selection defaults, display order and
+  response keys remain unchanged; no dedicated sleep response field exists.
+- Ordinary sleep failures use the existing static 500 fallback without
+  collection. Simulated NoMemoryError, SystemExit and Interrupt propagate.
+- A real 0.03-second Kernel.sleep measured with the monotonic clock, with the
+  diagnostic timestamp sampled afterward. A controlled sleeping stub/barrier
+  lets three authenticated requests remain pending while a fourth no-delay
+  request completes through the same wrapper; request markers stay separate.
+  This concurrency case is not an actual Passenger/Puma routing test.
+- No retained request environment in the returned body after a delayed call;
+  close releases JSON. Test-only GC and timeout/barrier machinery is not used
+  in the runtime implementation. No delay-related class-instance state is kept.
+
+All 35 Ruby library/test/script/build/gemspec files passed `ruby -c` under Ruby
+3.3.8. `git diff --check` passed. `ruby script/bundler_smoke` passed automatic and
+explicit loading, real bare/authenticated fractional delays, both password
+formats, 401/503 and invalid query responses. Its temporary local Gemfiles have
+no network source and emit the existing no-global-source warning.
+
+`gem build rails_runtime_info.gemspec` succeeded with no runtime dependencies
+and only the existing homepage warning. A separately unpacked gem, loaded in a
+fresh Ruby process exclusively from its packaged lib directory, passed version,
+real fractional delay, SSHA/PLAIN authentication, invalid query values/selection,
+HEAD, default-unread input and response-body-release checks. No gem installation
+was needed. Build artifacts are excluded from the Git repository.
+
+No application was booted, dependency installed or network/service contacted by
+the tests. Actual Rails, Passenger, Puma, dotenv-rails, ingress/client timeouts,
+worker rerouting, queued requests, disconnect handling and fiber-scheduled sleep
+were not tested. Ruby 2.4/2.5/3.4 and CentOS 6 execution remain untested. Ruby 2.4+
+and Rails 5.1+ remain implementation targets, not newly verified combinations.
+`script/rack_lint` exited 2 because Rack is not installed: its new success/400/
+HEAD delay cases are present but were not executed. Ruby documentation was
+reviewed separately; references are in docs/DESIGN.md.
+
+Release distribution uses a full bundle and an incremental bundle requiring
+v0.5.0's complete history through the base commit above. Bundle restoration and
+repository-integrity checks are performed separately at delivery. Before using
+sleep in production, confirm the real server's thread/process model and request
+limits; this feature does not guarantee another PID or cancellation when a
+client disconnects. A per-request delay cap does not limit concurrent occupancy.
+
 ## Version 0.5.0 - executed on 2026-11-17
 
 Started from the supplied v0.4.1 full bundle at
