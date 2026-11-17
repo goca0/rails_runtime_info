@@ -11,6 +11,8 @@ root = File.expand_path("..", __dir__)
 %w[automatic explicit].each do |mode|
   Dir.mktmpdir("rails-runtime-info-bundler-") do |directory|
     gemfile = File.join(directory, "Gemfile")
+    htpasswd = File.join(directory, "diagnostics.htpasswd")
+    File.write(htpasswd, "alice:{SSHA}7f5oxwoLw9l/oUGGRBiKWy6vhH0Ac2FsdP8=\nbob:{PLAIN}second-pass\n")
     suffix = mode == "explicit" ? ", require: false" : ""
     File.write(gemfile, "gem 'rails_runtime_info', path: #{root.inspect}#{suffix}\n")
     program = <<~'CODE'
@@ -39,9 +41,22 @@ root = File.expand_path("..", __dir__)
       abort "unexpected locked inventory" unless data["gems"].keys == ["activated"]
       spec = data["gems"]["activated"].find { |entry| entry["name"] == "rails_runtime_info" }
       abort "gem/version missing" unless spec && spec["version"] == RailsRuntimeInfo::VERSION
-      puts "Bundler #{Bundler::VERSION}: #{ENV.fetch('LOAD_MODE')} loading passed"
+      guarded = RailsRuntimeInfo::Endpoint.basic_auth(htpasswd: ENV["TEST_HTPASSWD"])
+      [nil, "alice:sample-pass", "bob:second-pass", "alice:wrong"].each do |credentials|
+        auth_env = { "QUERY_STRING" => "what=-all", "REQUEST_METHOD" => "GET" }
+        auth_env["HTTP_AUTHORIZATION"] = "Basic " + [credentials].pack("m0") if credentials
+        auth_status, _, auth_body = guarded.call(auth_env)
+        expected = ["alice:sample-pass", "bob:second-pass"].include?(credentials) ? 200 : 401
+        abort "wrong auth status" unless auth_status == expected
+        auth_body.close
+      end
+      unavailable = RailsRuntimeInfo::Endpoint.basic_auth(htpasswd: nil)
+      auth_status, _, auth_body = unavailable.call("REQUEST_METHOD" => "GET")
+      abort "missing config not closed" unless auth_status == 503
+      auth_body.close
+      puts "Bundler #{Bundler::VERSION}: #{ENV.fetch('LOAD_MODE')} loading and optional auth passed"
     CODE
-    env = { "BUNDLE_GEMFILE" => gemfile, "RUBYOPT" => nil, "RUBYLIB" => nil, "LOAD_MODE" => mode, "BUNDLE_FROZEN" => "false", "BUNDLE_DEPLOYMENT" => "false" }
+    env = { "BUNDLE_GEMFILE" => gemfile, "RUBYOPT" => nil, "RUBYLIB" => nil, "LOAD_MODE" => mode, "TEST_HTPASSWD" => htpasswd, "BUNDLE_FROZEN" => "false", "BUNDLE_DEPLOYMENT" => "false" }
     output, error, status = Open3.capture3(env, RbConfig.ruby, "-e", program, :chdir => directory)
     $stdout.write(output)
     $stderr.write(error)

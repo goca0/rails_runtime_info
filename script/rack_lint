@@ -33,3 +33,33 @@ require_relative "../lib/rails_runtime_info"
   end
 end
 puts "Rack #{Gem.loaded_specs.fetch('rack').version}: GET, POST and HEAD passed Rack::Lint"
+
+# Optional route-local auth, still without Rails or any network server.
+require "tmpdir"
+Dir.mktmpdir("rails-runtime-info-lint-") do |directory|
+  path = File.join(directory, "diagnostics.htpasswd")
+  File.write(path, "alice:{SSHA}7f5oxwoLw9l/oUGGRBiKWy6vhH0Ac2FsdP8=\nbob:{PLAIN}second-pass\n")
+  app = RailsRuntimeInfo::Endpoint.basic_auth(htpasswd: path)
+  missing = RailsRuntimeInfo::Endpoint.basic_auth(htpasswd: nil)
+  ["GET", "POST", "HEAD"].each do |method|
+    [[app, nil, 401], [app, "alice:sample-pass", 200], [app, "bob:second-pass", 200], [app, "alice:bad", 401], [missing, nil, 503]].each do |target, credentials, expected|
+      env = Rack::MockRequest.env_for("https://app.internal/_internal/diagnostics?what=-all", :method => method)
+      env["HTTP_AUTHORIZATION"] = "Basic " + [credentials].pack("m0") if credentials
+      status, headers, body = Rack::Lint.new(target).call(env)
+      text = String.new
+      begin
+        body.each { |part| text << part }
+      ensure
+        body.close if body.respond_to?(:close)
+      end
+      abort "unexpected auth status #{status}" unless status == expected
+      if method == "HEAD"
+        abort "auth HEAD has a body" unless text.empty?
+      else
+        JSON.parse(text)
+        abort "wrong auth length" unless headers["content-length"].to_i == text.bytesize
+      end
+    end
+  end
+end
+puts "Rack optional authentication: success, 401, 503 and HEAD passed Rack::Lint"

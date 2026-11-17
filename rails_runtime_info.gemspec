@@ -8,7 +8,7 @@ Gem::Specification.new do |spec|
   spec.authors = ["Jan Seda"]
   spec.email = ["git.codex.91ndg9n33q@hodor.cz"]
   spec.summary = "Non-invasive, on-demand runtime diagnostics for Rails and Rack"
-  spec.description = "A read-only, best-effort JSON snapshot of a Rails/Rack request, environment, gems, GC, YJIT, and process. No hooks, middleware, database connections, or runtime gem dependencies."
+  spec.description = "A read-only, best-effort JSON snapshot of a Rails/Rack request, environment, gems, GC, YJIT, and process. Optional route-local Basic authentication. No hooks, global middleware, database connections, or runtime gem dependencies."
   spec.license = "Nonstandard"
   spec.required_ruby_version = ">= 2.4"
   root = File.expand_path(__dir__)

@@ -2,9 +2,11 @@
 
 ## Public surface
 
-The only integration API is `RailsRuntimeInfo::Endpoint.call(env)`. It returns a
-Rack status/header/body tuple. Route selection and authorization are entirely
-outside the gem. The endpoint can also be called without Rails present.
+`RailsRuntimeInfo::Endpoint.call(env)` returns a Rack status/header/body tuple.
+Route selection remains outside the gem. Version 0.5.0 adds the explicit factory
+`Endpoint.basic_auth(htpasswd: path, realm: "Rails Runtime Info")`, returning a
+protected Rack callable; the original endpoint remains unauthenticated. Both
+forms work without Rails present.
 `RailsRuntimeInfo::VERSION` identifies the implementation; JSON structure is
 not promised stable.
 
@@ -13,6 +15,8 @@ not promised stable.
 | Component | Responsibility |
 | --- | --- |
 | `endpoint.rb` | Deferred JSON require, top-level ordinary-failure fallback, Rack headers and HEAD handling. |
+| `basic_auth.rb` | Immutable opt-in route wrapper, strict bounded Basic parsing, generic fail-closed responses and authentication-before-collection. |
+| `htpasswd.rb` | Request-local bounded password-file validation and SSHA/PLAIN verification; no cache or non-stdlib dependencies. |
 | `body.rb` | Enumerable Rack body retaining only serialized JSON; idempotent release on close. |
 | `snapshot.rb` | Request-local orchestration, per-field and per-section exception boundaries, framework/runtime observation. |
 | `normalizer.rb` | Copies safe primitives, guards traversal, avoids application serialization hooks and represents unsupported/binary/non-finite data. |
@@ -32,6 +36,66 @@ normalizer, snapshot or request, and drops the JSON reference on `close`.
 `Body#each` snapshots the JSON String reference into a local before the nil
 check and yield, preventing concurrent `close` from turning a yielded chunk
 into `nil`. The local does not copy the String and expires when iteration ends.
+
+## Optional route-local Basic authentication (0.5.0)
+
+The explicit factory is the only activation point. No middleware is inserted
+into Rails. A small Rack-compatible wrapper is used instead of constructing
+Rack::Auth::Basic: it preserves the no-Rack dependency, avoids REMOTE_USER/env
+mutation, bounds and strictly validates credential input, and has consistent
+fail-closed behavior across targeted Rack versions. It is not a general-purpose
+authentication framework.
+
+Construction copies/freezes path and challenge strings and freezes the wrapper.
+It performs no requires or file reads and stores neither ENV nor a Proc to resolve
+it later. Invalid/missing config creates a disabled protected endpoint (503).
+The documented `ENV[...]` expression cannot raise for a missing variable;
+`ENV.fetch(...)` would raise before the factory receives its arguments and is
+therefore explicitly prohibited in examples. Dotenv itself is not loaded.
+
+On a request, missing/malformed credentials give 401 before any file I/O. Only
+HTTP_AUTHORIZATION is accepted, with case-insensitive Basic and strict Base64
+via Ruby's m0 unpack directive. Decoded credentials split at the first colon;
+empty fields and ASCII control characters are rejected. Header size is capped
+at 16 KiB. No header normalization, request query parsing, body read or
+application callback is needed to authenticate. HEAD/OPTIONS are not bypasses.
+
+Htpasswd.verify uses the existing bounded regular-file reader (64 KiB plus one
+sentinel byte) and parses the entire local byte string before accepting a
+match. Missing files, unsupported/invalid entries, duplicate names or an empty
+user set are errors, never access grants. Comments and LF/CRLF are supported;
+a colon after the encoded password starts the optional comment. PLAIN therefore
+cannot encode a literal colon password, but SSHA can. Unknown hash formats are
+not delegated to crypt, commands or other gems. The strict decoder requires a
+20-byte SHA-1 result followed by nonempty salt bytes. For PLAIN, both candidates
+are SHA-256 hashed before fixed-size comparison. Only the selected account's
+digest is computed. Comparisons do not short-circuit at an unequal byte; the
+whole authentication operation is not claimed constant-time.
+
+Digest implementation files are explicitly required at request time (sha1 or
+sha2), avoiding reliance on Digest constant autoload during simultaneous first
+requests. Shared auth objects have no mutable request state. Parsed entries and
+decoded credentials exist only in a checking method frame, which returns before
+Endpoint.call; the response retains neither. There is no cache of successful
+logins, password files, users, digests, ENV or exceptions. File edits take effect
+on a subsequent valid attempt; advise atomic replacement, not partial in-place
+edits. A filesystem can still block; do not add asynchronous timeouts or locks.
+
+Ordinary auth failures, including LoadError and NotImplementedError, give a
+static 503 JSON response, with no exception details or log calls. Credential
+rejections give static 401 JSON plus a quoted/escaped realm challenge. Both are
+no-store and honor HEAD. Fatal exceptions propagate. Auth exception handling
+does not encompass successful downstream Endpoint.call; its existing error
+policy remains responsible for collectors/serialization. Query selectors cannot
+bypass auth, and failing auth never invokes selectors or diagnostics. Original
+headers stay unfiltered, including the accepted Authorization value, by the
+owner's explicit request. No REMOTE_USER assignment occurs.
+
+The wrapper cannot protect an alternate unwrapped route, another server path,
+or application data accessed elsewhere. TLS, filesystem permissions and network
+restrictions remain the operator's responsibility. SSHA/PLAIN are compatibility
+choices, not a recommendation for modern password storage. Tests are standalone
+and do not claim nginx, Rails or Puma integration validation.
 
 ## Rails is optional, and initialization is deliberately avoided
 
@@ -276,3 +340,14 @@ old-kernel execution test):
 - Ruby 3.4 native thread IDs and M:N caveat: https://docs.ruby-lang.org/en/3.4/Thread.html#method-i-native_thread_id
 - Linux task directories (2.6.0+) and thread-self (3.17+): https://man7.org/linux/man-pages/man5/proc_pid_task.5.html
 - Linux stat field 22 and clock-tick units: https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
+
+Authentication references checked for 0.5.0 (documentation/source review):
+
+- Basic credentials, colon delimiter, control characters and TLS requirement: https://www.rfc-editor.org/rfc/rfc7617.html
+- nginx password-file syntax and supported SSHA/PLAIN schemes: https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html
+- nginx SSHA digest/salt format: https://github.com/nginx/nginx/blob/master/src/core/ngx_crypt.c
+- dotenv-rails before_configuration loading: https://github.com/bkeepers/dotenv#customizing-rails
+
+These references establish format/interoperability context; this implementation
+intentionally rejects duplicate users, empty passwords, unsupported schemes and
+malformed whole files instead of emulating every permissive nginx behavior.

@@ -12,7 +12,7 @@ required.
 
 - Target Ruby 2.4+ and Rails 5.1+; optional APIs must be guarded. Do not introduce
   Ruby 2.5+ conveniences or syntax without a deliberate compatibility decision.
-- No Railtie, Engine, middleware, initializer, route registration, hooks,
+- No Railtie, Engine, global middleware, initializer, route registration, hooks,
   instrumentation, monkey patches, persistent counters, caches or threads.
 - Requiring the gem must define code only, load only its own implementation,
   and not boot Rails, read diagnostics, activate optional frameworks or connect
@@ -46,8 +46,30 @@ required.
   keys; omit all others in that namespace, nested action_dispatch containers,
   and rack.session.options. Apply omissions before touching values, recursively
   through plain env containers. No selector, including all, may override this.
-  Do not add arbitrary credential heuristics or built-in authentication.
-  Authentication and access restrictions are the ingress operator's job.
+  Do not add arbitrary credential heuristics. Optional, explicit per-route
+  Basic authentication is the only authentication feature; do not enable it
+  globally or redact its incoming Authorization header.
+- Keep Endpoint.basic_auth(htpasswd: path, realm: ...) opt-in and route-local.
+  Route examples must use ENV["RAILS_RUNTIME_INFO_HTPASSWD"], never a raising
+  ENV.fetch. Constructor performs no I/O/requires; nil/invalid configuration
+  must produce a closed 503 endpoint, not prevent Rails startup or fall back
+  to Endpoint.call. Do not evaluate arbitrary config Proc/Pathname hooks.
+- Authentication supports only explicit {SSHA} and {PLAIN}; no bcrypt, apr1,
+  crypt or unprefixed plaintext fallback. Strictly decode Basic credentials
+  and SSHA Base64. Require nonempty credentials and an actual SSHA salt.
+  Verify the whole bounded file: duplicates, malformed/unsupported entries or
+  no entries invalidate it, including after a valid matching entry. Preserve
+  documented whitespace and colon-comment semantics. Never truncate a large
+  file into successful authentication.
+- Read a regular password file only for a well-formed authentication attempt,
+  without caching, subprocesses, external services or locks. No diagnostic
+  collectors, query/body parsing or rack.input reads before successful auth.
+  Use static 401/503 JSON for auth failures; never echo exception details or
+  file contents and never log secrets. Fatal exceptions propagate. Do not
+  mutate env or set REMOTE_USER. Shared wrapper state is immutable config only;
+  credentials and parsed files must not be retained. No user sessions, rate
+  limits or global interception. Digest comparisons visit all fixed-size bytes;
+  do not promise whole-request constant timing or secure memory wiping.
 - The only gem inventory is Gem.loaded_specs; never read a lockfile or resolve
   dependencies. The default selection is exactly
   all,-loaded_features,-load_path,-gems,-environment,-request.body. Apply user
@@ -110,6 +132,12 @@ Test permanent server-secret omissions, bare/signed/nested selector ordering,
 query encoding, disabled collectors, and explicit/automatic require behavior.
 The optional script/bundler_smoke uses installed Bundler and temporary local
 path-gem Gemfiles only; it is not a Rails integration test.
+Test optional authentication separately: no boot-time I/O/framework loads,
+missing/invalid ENV/file/realm, both explicit formats, malformed/duplicate/
+unsupported files, bounded strict parsing, HEAD/challenge behavior, preservation
+of headers/env, no pre-auth collectors/body reads, file replacement, concurrent
+first digest loading and credential isolation, fatal propagation, and request/
+file lifetime. All test credentials must be synthetic.
 Do not add live diagnostic output or real secrets to fixtures. Keep commands
 on one physical line; longer Ruby source files may use normal multiline style.
 

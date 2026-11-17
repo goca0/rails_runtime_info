@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0
+
+- Add opt-in Endpoint.basic_auth(htpasswd: path, realm: ...) returning a
+  Rack-compatible per-route wrapper; original endpoint behavior stays unchanged.
+- Support multiple users with explicit RFC2307-style {SSHA} and {PLAIN} entries,
+  comments and LF/CRLF. No bcrypt, apr1, crypt or extra gem dependencies.
+- Use ENV[...] in route examples. Missing/invalid configuration creates a closed
+  503 endpoint without file I/O or digest loading during Rails initialization.
+- Strictly bound/decode Basic credentials and password-file contents. Reject
+  duplicate users, malformed/unsupported entries, empty passwords and unsalted
+  SSHA. Reread the entire small regular file for each valid credential attempt;
+  use fixed-size digest comparisons and retain no auth request state or cache.
+- Return generic no-store 401/503 responses before diagnostics on auth failure;
+  never log secrets or expose verifier details. Preserve the original headers,
+  including Authorization, and do not mutate env or set REMOTE_USER.
+- Add standalone format, failure, boot/lifetime, file-replacement, first-load and
+  concurrency tests; extend optional Bundler/Rack smoke scripts and documentation.
+
 ## 0.4.1
 
 - Hold the response JSON string in an `each`-local reference before checking

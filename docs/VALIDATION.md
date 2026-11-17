@@ -1,5 +1,68 @@
 # Validation record
 
+## Version 0.5.0 - executed on 2026-11-17
+
+Started from the supplied v0.4.1 full bundle at
+`79e0e37a72d251097c1ae8ed9d1af6822d15bca6`. The unchanged baseline passed
+179 tests / 894 assertions. All prior history and annotated release tags are
+retained. The new feature is explicit per-route Basic authentication; existing
+unauthenticated routes, diagnostics, selectors and the body-close fix remain.
+
+Executed on Linux 6.18.57 x86_64, MRI Ruby 3.3.8, Minitest 5.20.0 and Bundler
+2.5.22. The standalone suite passed **231 tests, 1173 assertions, zero failures,
+errors or skips**, using seeds 24680 and 43210. There are 52 added tests covering:
+
+- Independently generated SSHA known-answer vectors (binary salt and colon /
+  non-ASCII passwords), PLAIN, multiple users, exact bytes/whitespace, comments,
+  CRLF and a final unterminated line. Invalid Base64, unsalted/truncated SSHA,
+  unsupported schemes, duplicate names and malformed whole files fail closed.
+- Bounded Authorization and regular-file reads, including exact limits and one
+  byte over; actual FIFO/directory rejection; missing/deleted/atomically replaced
+  files; simulated permission errors; first-request digest-load failures.
+- Basic parsing, credential rejection, case-insensitive scheme, header injection
+  prevention, realm escaping, 401 challenges, 503 configuration failures and
+  empty HEAD bodies. Empty credentials and control characters are rejected.
+- Missing ENV path during factory invocation does not raise or read anything;
+  missing files can be created later. Paths/realms are immutable snapshots and
+  path changes in ENV need a new wrapper. No fallback to an open endpoint.
+- Unauthenticated requests do not call Endpoint, interpret what or read input.
+  Authenticated requests preserve selectors and Authorization, including its
+  original Rack key. Frozen env is accepted without mutation or REMOTE_USER
+  assignment. Bare endpoints stay unprotected and do not invoke authentication.
+- Fresh subprocess checks confirm no boot-time I/O or external library loads,
+  and no auth/diagnostic library load on a missing-credentials challenge.
+  Concurrent first requests load both Digest implementations successfully;
+  regular concurrent requests keep credentials/results isolated.
+- Weak references confirm no retained request env or password-file string after
+  checking, including failed attempts. Rejection bodies keep only static JSON
+  and release it on close. Forced GC is confined to tests, not library code.
+- Auth failures neither log nor expose exception messages. Ordinary exceptions,
+  LoadError and NotImplementedError close access; simulated SystemExit,
+  NoMemoryError and Interrupt propagate.
+
+`ruby script/bundler_smoke` passed both automatic and explicit loading, including
+SSHA/PLAIN success, wrong/missing credentials and missing configuration within
+Bundler. The temporary local-path Gemfiles produce Bundler's expected warning
+about an omitted global source; they intentionally have no network source.
+`gem build rails_runtime_info.gemspec` succeeded, with only the existing missing
+homepage warning. A separately unpacked gem passed isolated library checks for
+SSHA/PLAIN, 401/503, missing file/configuration, HEAD and body cleanup; its loaded
+paths were checked to exclude the working-tree library. All 32 Ruby source/test/
+script/build files passed `ruby -c`, and `git diff --check` passed.
+
+No application was booted or dependency installed. Tests made no network/service
+calls. Rack remains unavailable, so the extended `script/rack_lint` exited 2;
+its authentication cases were added but **not executed**. Actual Rails, Puma,
+Passenger, dotenv-rails, nginx and browser integration were not tested. Ruby
+2.4/2.5/3.4 execution and CentOS 6 remain untested. Source review establishes
+expected formats and loading conventions, not live compatibility certification.
+There was no independent security audit; fixed-size comparisons are not a claim
+of whole-request constant timing or hardened public-Internet authentication.
+
+Full/incremental artifact restoration is a separate release-delivery check.
+The incremental prerequisite is the complete v0.4.1 history rooted through the
+base commit given above, not v0.4.0 or an arbitrary similarly named checkout.
+
 ## Version 0.4.1 - executed on 2026-11-17
 
 Based on the clean v0.4.0 commit

@@ -4,11 +4,11 @@ A small, on-demand diagnostic Rack endpoint for Rails applications. Add the gem
 and one route; inspect a pretty-printed JSON snapshot when troubleshooting.
 
 **This endpoint deliberately returns credentials present in HTTP requests and,
-when selected, the process environment. It has no authentication. Rails-injected
-request-environment entries are narrowly whitelisted to avoid exposing server
-signing/encryption secrets; this is not general-purpose secret redaction. Protect
-the route at a trusted ingress with Basic authentication over TLS and appropriate
-network restrictions before enabling it.**
+when selected, the process environment. Authentication is off by default.
+Rails-injected request-environment entries are narrowly whitelisted to avoid
+exposing server signing/encryption secrets; this is not general-purpose secret
+redaction. Protect the route with the opt-in Basic-auth wrapper below or a trusted
+ingress, over TLS and with appropriate network restrictions.**
 
 ## Motivation and constraints
 
@@ -22,7 +22,7 @@ The gem must not initialize services or change how ordinary application
 requests execute. It must remain useful when an optional collector fails.
 
 Requiring it defines the implementation only. There is no Railtie, engine,
-middleware, initializer, Passenger hook, background thread, instrumentation,
+global middleware, initializer, Passenger hook, background thread, instrumentation,
 monkey patch or automatic route registration. There are no declared runtime gem
 dependencies; JSON and small standard-library facilities are loaded only when
 needed for a diagnostic request. Existing Rails/Rack/Bundler installations are
@@ -33,7 +33,7 @@ observed, not required or reconfigured.
 Restore the repository from the supplied full Git bundle:
 
 ```sh
-git clone rails_runtime_info-0.4.1-full.bundle rails_runtime_info
+git clone rails_runtime_info-0.5.0-full.bundle rails_runtime_info
 ```
 
 For an adjacent local checkout, add this to the application's Gemfile in a group
@@ -89,6 +89,136 @@ parameter parsing or parse the request body.
 
 Normal Bundler installation and application restart/deployment procedures still
 apply. Removing the route and Gemfile entry removes the integration.
+
+## Optional per-route Basic authentication (0.5.0)
+
+The original `RailsRuntimeInfo::Endpoint` remains unauthenticated. To protect
+just the diagnostic route, replace its target with an explicit wrapper:
+
+```ruby
+match "/_internal/diagnostics", to: RailsRuntimeInfo::Endpoint.basic_auth(htpasswd: "/etc/myapp/diagnostics.htpasswd"), via: :all, format: false
+```
+
+The factory returns a Rack-compatible callable. It does not add application-wide
+middleware, alter another route, touch WebSocket handling, or require a Rails
+initializer. It is implemented within this gem rather than instantiating
+`Rack::Auth::Basic`; strict bounded decoding, immutable configuration and generic
+fail-closed responses work without introducing a Rack or authentication-gem
+dependency. The public factory accepts `htpasswd:` and optional `realm:` (default
+`"Rails Runtime Info"`). Plain String paths are supported; convert a Pathname
+explicitly before passing it. An absolute path is recommended.
+
+### Path from ENV / dotenv-rails
+
+For example, put this path (not the file's contents) in the application's `.env`:
+
+```dotenv
+RAILS_RUNTIME_INFO_HTPASSWD=/etc/myapp/diagnostics.htpasswd
+```
+
+In the **existing** `config/routes.rb` block:
+
+```ruby
+require "rails_runtime_info"
+
+Rails.application.routes.draw do
+  match "/_internal/diagnostics", to: RailsRuntimeInfo::Endpoint.basic_auth(htpasswd: ENV["RAILS_RUNTIME_INFO_HTPASSWD"]), via: :all, format: false
+  # Existing routes follow.
+end
+```
+
+**Use `ENV["RAILS_RUNTIME_INFO_HTPASSWD"]`, not `ENV.fetch(...)`.** The gem
+cannot rescue an exception raised by a caller while evaluating its arguments.
+An unset, empty or invalid path is accepted by the factory and creates a closed
+endpoint returning **503**, not an unprotected endpoint. No password file is
+opened and no digest library is loaded when the route is constructed. A missing
+or unreadable file therefore does not prevent application initialization.
+
+Normal `dotenv-rails` startup loads `.env` before routes. There is no dotenv
+integration or dependency in this gem. The path is captured when the route is
+defined: changing the environment variable needs route reload or application
+restart. Creating or updating the file at that path takes effect on the next
+well-formed authentication attempt, with no reload. Do not also leave an
+unprotected alias of the endpoint accessible.
+
+### Password-file format
+
+One user per line, with **only** explicit `{SSHA}` or `{PLAIN}` schemes:
+
+```text
+# Illustrative test credentials only; do not deploy these values.
+alice:{SSHA}7f5oxwoLw9l/oUGGRBiKWy6vhH0Ac2FsdP8=
+bob:{PLAIN}second-pass:optional comment
+```
+
+The illustrative SSHA entry verifies `sample-pass`. It contains Base64 of the
+20-byte SHA-1 digest of password bytes followed by salt bytes, then the salt
+itself: `Base64(SHA1(password + salt) + salt)`. At least one salt byte is required.
+The full Base64 value is decoded strictly; malformed/truncated values and an
+unsalted 20-byte digest are rejected. No bcrypt, apr1, crypt, SHA or unprefixed
+plaintext fallback is implemented.
+
+Multiple users, LF/CRLF, a final line without a newline, blank lines, `#` comments
+(with optional preceding spaces/tabs) and a third colon-delimited comment field
+are supported. Names and passwords are byte-exact and case-sensitive; spaces in
+credentials are not stripped. Empty usernames/passwords and control characters
+in decoded credentials or PLAIN fields are rejected. The third colon-delimited
+field starts a comment, so a literal colon cannot be stored in a PLAIN password;
+use SSHA for a password containing colons. Non-ASCII bytes must match the file's
+encoding; the gem does not normalize or guess character encodings.
+
+**A malformed line, duplicate username or unsupported scheme anywhere in the
+file invalidates the entire file.** It is not skipped and a valid earlier entry
+cannot authorize access. This conservative policy deliberately differs from
+permissive readers that stop at the first matching username. An empty or
+comment-only file also keeps the endpoint closed.
+
+Use a small local regular file, readable by the worker and writable only by its
+administrator. The file is reread for every syntactically valid credential
+attempt; no plaintext, hashes, parsed user list or authentication result is
+cached. Replace it atomically to avoid exposing an in-place partial edit to
+concurrent requests. Symlinks are permitted, but the opened target must be a
+regular file. File size is limited to **64 KiB** (read at most one extra byte);
+an oversized file is rejected, never authenticated from a truncated prefix.
+The Authorization header is limited to **16 KiB**. Paths are limited to 4096
+bytes and realms to 256 printable ASCII bytes; quoted realm characters are
+escaped. Invalid configuration remains closed instead of raising on route setup.
+
+### Responses, confidentiality and scope
+
+| Condition | Result |
+| --- | --- |
+| Valid credentials | Original endpoint runs, with its existing selection, status, headers and body behavior. |
+| Missing/malformed credentials, unknown user or wrong password | **401**, JSON `{"error":"unauthorized"}` and `WWW-Authenticate: Basic realm="Rails Runtime Info"` (or the configured realm). |
+| Missing/invalid path or realm, missing/unreadable/oversized/nonregular/invalid file, ordinary verification failure | **503**, generic JSON `{"error":"authentication_unavailable"}`; no exception details, filesystem paths or file contents. |
+
+A configured path with missing/malformed credentials returns 401 without opening
+the file; file problems become 503 on a well-formed credential attempt. Invalid
+route configuration itself returns 503 immediately. Both rejections use
+`Cache-Control: no-store`, lowercase Rack headers and an empty body for HEAD.
+All HTTP methods are authenticated. Rejected requests do not run collectors,
+parse `what`, or read `rack.input`. Fatal exceptions are not swallowed.
+
+Only `HTTP_AUTHORIZATION` is used; proxy headers, `REMOTE_USER` and query/body
+values cannot authorize access. Successful authentication neither rewrites the
+Rack environment nor sets `REMOTE_USER`. **The original Authorization header
+remains in selected request output, as requested**; Basic credentials can be
+recovered from it. Protect saved/shared diagnostic output accordingly. Password
+file contents and verifier errors are never deliberately added to diagnostics.
+
+Digest comparisons inspect every byte of fixed-size digests (SHA-1 for SSHA;
+SHA-256 of both inputs for PLAIN). This avoids ordinary String prefix/length
+comparison of passwords; it is not a guarantee that Ruby execution, username
+lookup or the whole request has constant timing. No login cache, sessions,
+lockouts or rate limiting are added. Use network/server controls for abuse.
+
+Basic authentication does not encrypt credentials: use TLS on the client-facing
+connection. PLAIN stores a recoverable password, and single-round SSHA is cheap
+to guess offline; these are the explicitly requested compatibility formats,
+not a password-storage recommendation. Avoid reused credentials. The wrapper
+retains only immutable route configuration and the endpoint class. Parsed file
+contents and decoded credentials become eligible for ordinary GC after checking;
+there is no forced GC or guaranteed secure memory wiping.
 
 ## Compatibility
 
@@ -431,7 +561,8 @@ this avoids materializing lazy sessions and other application state.
 
 Defensive normalization is bounded to depth 24 and 100,000 nodes per normalized
 field, with explicit limit markers. Ordinary header/environment string values
-have no separate truncation limit. Known local files are bounded to 64 KiB,
+have no separate truncation limit. Known local files, including an opt-in
+authentication file, are bounded to 64 KiB,
 and allocator map scanning to 2 MiB. An oversized local
 file is reported as unavailable, not silently parsed as a complete file.
 
@@ -466,6 +597,7 @@ configuration changes. It is not literally free of effects: Ruby files must be
 loaded, some standard-library activation can persist after the first diagnostic
 request, collection/serialization allocates objects and consumes CPU, files may
 acquire access-time changes, and reading the request body advances its stream.
+Optional authentication also reads its password file and performs digest work.
 Normal allocations can trigger ordinary GC/JIT activity. Kernel accounting and
 some runtime accessors also perform work. These are not hidden guarantees of
 zero overhead or zero initialization inside Ruby itself.
@@ -480,7 +612,8 @@ Allocator-library mappings are hints only, not proof of the allocator in use.
 No processed-request counter is synthesized.
 
 There are deliberately no asynchronous timeouts or worker-killing mechanisms.
-A slow request-body stream or filesystem can still block. Set request-body size,
+A slow request-body stream or filesystem (including the authentication file) can
+still block. Set request-body size,
 read-time and concurrency limits at the proxy/server. Use this endpoint
 occasionally; it is not a high-frequency monitoring or liveness endpoint.
 
@@ -512,7 +645,8 @@ RACK_VERSION=2.2.9 ruby script/rack_lint
 
 An optional Bundler-only smoke script verifies both automatic loading via
 `Bundler.require` and explicit loading after `Bundler.setup`, using temporary
-local path-gem Gemfiles. It never boots Rails, installs gems, or fetches sources:
+local path-gem Gemfiles, including optional authentication. It never boots Rails,
+installs gems, or fetches sources:
 
 ```sh
 ruby script/bundler_smoke
@@ -532,27 +666,28 @@ A Git bundle carries commits/refs, not the source repository's local Git config.
 
 ### Full and incremental bundles
 
-The full `rails_runtime_info-0.4.1-full.bundle` can be cloned into an empty
-location using the command above. It includes `main`, `v0.4.1` and all previous
+The full `rails_runtime_info-0.5.0-full.bundle` can be cloned into an empty
+location using the command above. It includes `main`, `v0.5.0` and all previous
 history/tags.
 
-The smaller `rails_runtime_info-0.4.1-incremental.bundle` requires the existing
-commit `ecab7f3e0945be44ae17f3f7dd0bfd5de456d7f2` (v0.4.0) and its history. It
-contains only the new history plus the `main` and `v0.4.1` refs; it cannot be
+The smaller `rails_runtime_info-0.5.0-incremental.bundle` requires the existing
+commit `79e0e37a72d251097c1ae8ed9d1af6822d15bca6` (v0.4.1) and its history. It
+contains only the new history plus the `main` and `v0.5.0` refs; it cannot be
 cloned into an empty repository. From a clean existing checkout on the branch
 you intend to update, with the bundle in its parent directory:
 
 ```sh
-git bundle verify ../rails_runtime_info-0.4.1-incremental.bundle
+git bundle verify ../rails_runtime_info-0.5.0-incremental.bundle
 ```
 
 ```sh
-git fetch ../rails_runtime_info-0.4.1-incremental.bundle refs/heads/main refs/tags/v0.4.1:refs/tags/v0.4.1
+git fetch ../rails_runtime_info-0.5.0-incremental.bundle refs/heads/main refs/tags/v0.5.0:refs/tags/v0.5.0
 ```
 
 ```sh
-git merge --ff-only v0.4.1
+git merge --ff-only v0.5.0
 ```
 
 The fast-forward requirement refuses a diverged branch rather than rewriting
-local work. Authentication and route integration are unchanged from 0.4.0.
+local work. Existing bare-endpoint routes stay unauthenticated; protection is
+only enabled by explicitly using the new route wrapper.

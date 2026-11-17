@@ -25,7 +25,7 @@ module RailsRuntimeInfo
     end
 
     # Bounded reads of known local files. NONBLOCK prevents a misconfigured
-    # lockfile FIFO from hanging on open; fstat rejects non-regular files.
+    # local-file FIFO from hanging on open; fstat rejects non-regular files.
     # This is not a timeout for slow filesystems or /proc generation.
     def self.read_file(path, limit)
       flags = File::RDONLY

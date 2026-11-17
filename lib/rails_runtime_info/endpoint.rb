@@ -4,6 +4,12 @@ module RailsRuntimeInfo
   class Endpoint
     FALLBACK_JSON = "{\"error\":\"rails_runtime_info could not serialize the diagnostic response\"}\n".freeze
 
+    # Opt-in per-route protection. A nil/missing path stays closed without
+    # preventing application initialization. Do not use ENV.fetch in routes.
+    def self.basic_auth(htpasswd: nil, realm: BasicAuth::DEFAULT_REALM)
+      BasicAuth.new(self, htpasswd: htpasswd, realm: realm)
+    end
+
     def self.call(env)
       status = 200
       begin
