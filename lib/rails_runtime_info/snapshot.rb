@@ -307,8 +307,19 @@ module RailsRuntimeInfo
         if @selection.requested?("#{path}.entries")
           result["entries"] = {}
           listing.fetch("names").each do |name|
-            capture(result["entries"], name, "#{path}.entries.#{name}") do
-              LinuxProcess.link_target("#{directory}/#{name}")
+            entry_path = "#{path}.entries.#{name}"
+            if listing["known_names_fallback"]
+              next unless @selection.requested?(entry_path)
+              begin
+                value = LinuxProcess.link_target("#{directory}/#{name}")
+              rescue StandardError, LoadError, NotImplementedError
+                next # Missing/denied candidates are expected, notably on old kernels.
+              end
+              capture(result["entries"], name, entry_path) { value }
+            else
+              capture(result["entries"], name, entry_path) do
+                LinuxProcess.link_target("#{directory}/#{name}")
+              end
             end
           end
         end

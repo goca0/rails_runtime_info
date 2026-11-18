@@ -8,7 +8,7 @@ class PackageTest < Minitest::Test
   end
 
   def test_release_version_matches_gemspec
-    assert_equal "0.7.1", RailsRuntimeInfo::VERSION
+    assert_equal "0.7.2", RailsRuntimeInfo::VERSION
     assert_equal RailsRuntimeInfo::VERSION, specification.version.to_s
   end
 

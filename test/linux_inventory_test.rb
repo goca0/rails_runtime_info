@@ -162,12 +162,12 @@ class LinuxInventoryTest < Minitest::Test
     end
   end
 
-  def test_denied_directory_is_an_isolated_error
-    Linux.stub(:namespace_names, proc { raise Errno::EACCES }) do
+  def test_unexpected_directory_failure_is_an_isolated_error
+    Linux.stub(:namespace_names, proc { raise Errno::EIO }) do
       _, _, data = linux_response("-all,process.linux.namespaces,process.pid,errors")
       assert_equal Process.pid, data["process"]["pid"]
       assert_nil data["process"]["linux"]["namespaces"]
-      assert_equal "Errno::EACCES", data["errors"]["process.linux.namespaces"]["class"]
+      assert_equal "Errno::EIO", data["errors"]["process.linux.namespaces"]["class"]
     end
   end
 

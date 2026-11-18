@@ -390,8 +390,9 @@ FD and namespace enumeration use fixed procfs directories, constrained entry
 names, limits of 1024/64 and one lookahead. Directories close before per-link
 reads. File.readlink reads link contents only; it never opens targets, acquires
 descriptor ownership, reads file offsets, resolves socket peers or enters a
-namespace. Individual failures are captured, not retried. Missing directories
-are optional absence. Links longer than 4096 bytes are rejected. Metadata-only
+namespace. Individual failures during normal enumeration are captured, not
+retried. Missing directories are optional absence. Links longer than 4096 bytes
+are rejected. The 0.7.2 permission fallback is described below. Metadata-only
 limit selection skips enumeration, and individual namespace/FD link selection
 skips other readlinks. These caps do not create filesystem timeouts.
 
@@ -424,6 +425,31 @@ parsed primitives and records ordinary file/parser failures under
 process.linux.limits. Dotted selection projects the parsed fields afterward.
 Fatal exceptions propagate. All input, match data and result objects are local
 to the current request; nothing is cached or shared across requests.
+
+## Namespace discovery permission fallback (0.7.2)
+
+`namespace_names` first uses the existing `Dir.foreach`-based bounded discovery.
+Only EACCES and EPERM select a frozen list of ten known names. This branch does
+not read links itself: it returns candidates with an internal fallback marker,
+so the snapshot can honor dotted selection before probing. The marker is never
+serialized. ENOENT/ENOTDIR still omit the optional directory, and other ordinary
+enumeration failures still produce the usual section error.
+
+For selected fallback candidates, the snapshot uses the existing bounded
+`link_target` helper. Ordinary failures, including missing names on old kernels,
+denied links and oversized targets, omit that candidate without adding a null
+entry or error. Fatal exceptions propagate. This behavior is confined to the
+namespace fallback: normal namespace discovery and FD detail failures retain
+their prior null/error behavior. No link is opened or followed, and no prctl,
+permission change, namespace operation, lock or shared mutable state is added.
+
+The public limit/truncated/entries shape is unchanged. Empty fallback entries
+means no selected readable observations. A false truncated flag says only that
+the candidate list was not cut off; the fixed fallback cannot discover unknown
+future namespace names. Successful directory enumeration remains dynamic.
+Limit-only requests skip discovery; truncated-only requests do no readlinks.
+All lists/results are request-local or immutable constants, with no cached
+success/failure across requests.
 
 ## Upstream references consulted
 

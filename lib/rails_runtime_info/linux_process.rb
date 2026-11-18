@@ -6,6 +6,7 @@ module RailsRuntimeInfo
     MAPS_LIMIT = 2 * 1024 * 1024
     FD_LIMIT = 1024
     NAMESPACE_LIMIT = 64
+    KNOWN_NAMESPACE_NAMES = %w[cgroup ipc mnt net pid pid_for_children time time_for_children user uts].map { |name| name.freeze }.freeze
     LINK_BYTES = 4096
 
     def self.read(path, limit = SMALL_FILE_LIMIT)
@@ -127,6 +128,11 @@ module RailsRuntimeInfo
 
     def self.namespace_names
       directory_names("/proc/self/ns", NAMESPACE_LIMIT, /\A[a-z][a-z0-9_]*\z/)
+    rescue Errno::EACCES, Errno::EPERM
+      # Some non-dumpable processes can read individual links but cannot list
+      # this directory. These are candidates, not a claim of kernel support.
+      { "names" => KNOWN_NAMESPACE_NAMES.first(NAMESPACE_LIMIT), "limit" => NAMESPACE_LIMIT,
+        "truncated" => KNOWN_NAMESPACE_NAMES.length > NAMESPACE_LIMIT, "known_names_fallback" => true }
     end
 
     def self.link_target(path)

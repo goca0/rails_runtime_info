@@ -1,5 +1,39 @@
 # Validation record
 
+## Version 0.7.2 - review and Git validation on 2026-11-18
+
+This is a separate commit after v0.7.1,
+`7cc1ee875c2ea7c57c788beb9f93583544796123`, adding only namespace permission
+fallback and related tests/documentation. It preserves all preceding history.
+
+The same Debian 13.6 / Linux 6.18.57 x86_64 container still has **no Ruby runtime**.
+No Ruby tests, Ruby syntax checks, gem build, Bundler smoke or Rack::Lint were
+executed. Source and tests received independent static review; git diff --check
+passed. There are 16 added namespace regression tests and one updated existing
+directory-error test. The 13 limits tests added in 0.7.1 also remain unexecuted.
+
+The new tests exercise actual Dir.foreach stubs rather than bypassing the
+permission rescue. Coverage includes both EACCES/EPERM, directory-before-link
+ordering, normal discovery of unknown names, incomplete enumeration, missing
+directories, unrelated directory errors, mixed/all failed fallback probes,
+the 4096-byte link bound, dotted/excluded/summary selectors, ordinary/fatal
+exception distinctions, unchanged normal namespace and FD error entries,
+readlink-only operations and immutable/request-local fallback candidates.
+Existing tests retain limit-only/excluded/non-Linux no-discovery checks.
+
+Git-only release verification restores the full bundle and applies the
+incremental bundle to a separate v0.7.1 clone. It compares release commit, tree
+and annotated tag, verifies clean restored working trees and runs
+git fsck --full --strict. The incremental prerequisite is the v0.7.1 commit above;
+users starting at v0.7.0 need the 0.7.1 incremental first. These checks establish
+repository integrity, not executed Ruby behavior.
+
+Neither PR_SET_DUMPABLE=0 nor the user's patched Ruby was exercised. Permission
+failures and older missing namespace types are represented in unexecuted test
+fixtures. Ruby 2.4+, Rails 5.1+, Passenger/Puma and CentOS 6 runtime compatibility
+remain targets or prior documented limitations, not new validation claims.
+No runtime dependencies were installed or fetched.
+
 ## Version 0.7.1 - review and Git validation on 2026-11-18
 
 Started from the supplied v0.7.0 full bundle at

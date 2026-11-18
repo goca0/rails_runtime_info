@@ -69,6 +69,15 @@ required.
   inspect sockets, or add fdinfo. Bound link text to 4096 bytes. Isolate vanished
   or denied entries, tolerate reused FDs, close enumeration directories, and
   omit missing optional directories. Document process-view namespace scope.
+- Namespace discovery must try Dir.foreach first. Only EACCES/EPERM triggers
+  the frozen known-name fallback (cgroup, ipc, mnt, net, pid, pid_for_children,
+  time, time_for_children, user, uts). Respect selection before each readlink;
+  skip ordinary failed fallback probes without null/error entries, including
+  missing old-kernel names. Fatal exceptions still propagate. Preserve normal
+  enumeration/FD error handling and the existing JSON shape. An empty fallback
+  means no selected readable links, not no namespaces; truncated=false is not
+  proof of exhaustive discovery. Do not alter dumpability, permissions or
+  namespace membership, or add open/stat/access checks of symlink targets.
 - Keep cgroup resource usage/limits deferred in TODO.md. Preserve only the
   existing raw cgroup membership text; implement no snapshot-delta sampling.
 - HTTP request headers and explicitly selected ENV values stay unredacted.
@@ -198,6 +207,10 @@ Test limits parsing with padded/compact/tab-separated rows, full-width integers,
 unlimited values, missing units, unknown names, malformed lines and CRLF. Verify
 structured-only JSON, bounded reads, nested selection, skipped/non-Linux reads,
 independent ordinary failures and fatal propagation.
+Test namespace directory-first discovery, EACCES/EPERM fallback, missing versus
+unexpected directory errors, known/unknown names, partial/all failed probes,
+bounded links, selected/excluded names, summary-only requests and fatal errors.
+Keep simulated dumpability restrictions distinct from actual patched-Ruby runs.
 Test delay boundaries/duplicates/encoding, auth-before-validation-before-sleep,
 invalid-what rejection before waiting, zero/default no-op, no pre-wait snapshot
 or body reads, all methods/HEAD, unchanged JSON, exceptions and cleanup. Include

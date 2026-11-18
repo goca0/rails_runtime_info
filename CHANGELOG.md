@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.2
+
+- Keep Dir.foreach as the first namespace discovery method. If listing
+  /proc/self/ns fails with EACCES or EPERM, try the ten known namespace symlink
+  names with the existing bounded readlink helper. This supports environments
+  where directory listing is denied but named readlink calls still work.
+- Omit ordinary failed fallback probes, including namespace types missing on
+  older kernels; preserve successful entries. Keep the existing output shape,
+  selectors, normal-discovery/FD error reporting and fatal-exception behavior.
+  No dumpability/permission changes, native calls, locks, caches or target opens.
+- Document that fallback is a best-effort known-name inventory, including
+  empty-result and truncated semantics. Add regression tests for discovery,
+  permissions, selection, bounds and failures. Ruby execution remains unavailable
+  in the release container; see docs/VALIDATION.md.
+
 ## 0.7.1
 
 - Change process.linux.limits from raw /proc/self/limits text to a structured
