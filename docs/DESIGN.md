@@ -426,14 +426,16 @@ process.linux.limits. Dotted selection projects the parsed fields afterward.
 Fatal exceptions propagate. All input, match data and result objects are local
 to the current request; nothing is cached or shared across requests.
 
-## Namespace discovery permission fallback (0.7.2)
+## Namespace discovery permission fallback (0.7.2; discovery field in 0.7.3)
 
 `namespace_names` first uses the existing `Dir.foreach`-based bounded discovery.
 Only EACCES and EPERM select a frozen list of ten known names. This branch does
 not read links itself: it returns candidates with an internal fallback marker,
-so the snapshot can honor dotted selection before probing. The marker is never
-serialized. ENOENT/ENOTDIR still omit the optional directory, and other ordinary
-enumeration failures still produce the usual section error.
+so the snapshot can honor dotted selection before probing. The internal marker
+is not serialized; the snapshot instead exposes `discovery` as `"directory"` or
+`"known_names_fallback"` when enumeration was attempted. ENOENT/ENOTDIR still
+omit the optional directory, and other ordinary enumeration failures still
+produce the usual section error.
 
 For selected fallback candidates, the snapshot uses the existing bounded
 `link_target` helper. Ordinary failures, including missing names on old kernels,
@@ -443,11 +445,14 @@ namespace fallback: normal namespace discovery and FD detail failures retain
 their prior null/error behavior. No link is opened or followed, and no prctl,
 permission change, namespace operation, lock or shared mutable state is added.
 
-The public limit/truncated/entries shape is unchanged. Empty fallback entries
+The existing public limit/truncated/entries shape is preserved, with the new
+`discovery` field for namespaces only (not FD details). Empty fallback entries
 means no selected readable observations. A false truncated flag says only that
 the candidate list was not cut off; the fixed fallback cannot discover unknown
 future namespace names. Successful directory enumeration remains dynamic.
-Limit-only requests skip discovery; truncated-only requests do no readlinks.
+Limit-only requests skip discovery; truncated-only and discovery-only requests
+enumerate candidates without reading any links. Dotted selection may exclude
+`discovery` while retaining other namespace fields.
 All lists/results are request-local or immutable constants, with no cached
 success/failure across requests.
 

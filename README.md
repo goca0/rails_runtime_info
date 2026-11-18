@@ -33,7 +33,7 @@ observed, not required or reconfigured.
 Restore the repository from the supplied full Git bundle:
 
 ```sh
-git clone rails_runtime_info-0.7.2-full.bundle rails_runtime_info
+git clone rails_runtime_info-0.7.3-full.bundle rails_runtime_info
 ```
 
 For an adjacent local checkout, add this to the application's Gemfile in a group
@@ -295,6 +295,13 @@ These are implementation targets, not a claim that every version combination
 has been tested. See [validation](docs/VALIDATION.md) for exactly what was run.
 The application itself must support its chosen Ruby/Rails/Rack combination.
 
+## New in 0.7.3
+
+`process.linux.namespaces.discovery` reports `"directory"` when `Dir.foreach`
+succeeds or `"known_names_fallback"` when a permission failure causes fixed-name
+`readlink` probes. The latter is not an exhaustive namespace inventory. No
+additional namespace operations or FD operations are performed by default.
+
 ## New in 0.7.2
 
 Namespace discovery now falls back to named `readlink` probes when listing
@@ -555,8 +562,9 @@ appear and subsequently disappear; an ENOENT error for that entry is normal.
 No socket-address lookup or fdinfo collector is included.
 
 `process.linux.namespaces` is **included by default** when available. It has
-`limit`, `truncated`, and `entries` mapping names (for example `net`, `mnt`,
-`pid`) to `/proc/self/ns/*` link targets. `Dir.foreach` is tried first, with
+`limit`, `truncated`, `discovery`, and `entries` mapping names (for example
+`net`, `mnt`, `pid`) to `/proc/self/ns/*` link targets. The `discovery` value is
+`"directory"` or `"known_names_fallback"`. `Dir.foreach` is tried first, with
 enumeration capped at **64** entries plus one lookahead. Successful enumeration
 discovers whatever names the kernel exposes, including names unknown to this
 gem. A missing directory is omitted, and a failed enumerated link is isolated
@@ -572,6 +580,7 @@ Older kernels need not expose every name. Other directory errors retain their
 existing behavior, and fatal exceptions are not swallowed.
 
 Fallback preserves the same `limit`, `truncated` and `entries` structure.
+The `discovery` field now identifies which method provided the candidates.
 An empty fallback `entries` map means no selected link could be read, not that
 the process has no namespaces. `truncated: false` means the bounded candidate
 list was not truncated; fallback cannot discover future names outside that
@@ -589,8 +598,9 @@ entries, when present, retain their actual kernel names and semantics.
 A namespace-specific selector such as
 `process.linux.namespaces.entries.net` reads only that link, whether discovered
 by enumeration or selected from the fallback list. Selecting only `.limit`
-skips discovery and readlink; selecting only `.truncated` performs discovery
-without probing links. Symlink results are bounded to **4096 bytes**; larger
+skips discovery and readlink; selecting only `.truncated` or `.discovery`
+performs directory enumeration (or the permission fallback) without probing
+links. Symlink results are bounded to **4096 bytes**; larger
 results are reported as errors during normal enumeration and omitted during
 fallback. Symlink targets are never followed. Missing procfs on old kernels or
 unsupported platforms must not prevent unrelated collectors from working.
@@ -935,31 +945,30 @@ A Git bundle carries commits/refs, not the source repository's local Git config.
 
 ### Full and incremental bundles
 
-The full `rails_runtime_info-0.7.2-full.bundle` can be cloned into an empty
-location using the command above. It includes `main`, `v0.7.2` and all previous
+The full `rails_runtime_info-0.7.3-full.bundle` can be cloned into an empty
+location using the command above. It includes `main`, `v0.7.3` and all previous
 history/tags.
 
-The smaller `rails_runtime_info-0.7.2-incremental.bundle` requires the existing
-commit `7cc1ee875c2ea7c57c788beb9f93583544796123` (v0.7.1) and its history. It
-contains only the new history plus the `main` and `v0.7.2` refs; it cannot be
+The smaller `rails_runtime_info-0.7.3-incremental.bundle` requires the existing
+commit `b15c2a258e447eaf0dd15436620851d55eef1225` (v0.7.2) and its history. It
+contains only the new history plus the `main` and `v0.7.3` refs; it cannot be
 cloned into an empty repository. From a clean existing checkout on the branch
 you intend to update, with the bundle in its parent directory:
 
 ```sh
-git bundle verify ../rails_runtime_info-0.7.2-incremental.bundle
+git bundle verify ../rails_runtime_info-0.7.3-incremental.bundle
 ```
 
 ```sh
-git fetch ../rails_runtime_info-0.7.2-incremental.bundle refs/heads/main refs/tags/v0.7.2:refs/tags/v0.7.2
+git fetch ../rails_runtime_info-0.7.3-incremental.bundle refs/heads/main refs/tags/v0.7.3:refs/tags/v0.7.3
 ```
 
 ```sh
-git merge --ff-only v0.7.2
+git merge --ff-only v0.7.3
 ```
 
-For an existing v0.7.0 checkout, apply the 0.7.1 incremental bundle first; it
-requires `6c327e62f3e16ebc61a5704c9e64540cc742c950`. The separately supplied
-0.7.1 full bundle is also available if only the limits change is wanted.
+For an existing v0.7.0 checkout, apply the incremental bundles in version order:
+0.7.1, then 0.7.2, then 0.7.3. Alternatively, use this release's full bundle.
 
 The fast-forward requirement refuses a diverged branch rather than rewriting
 local work. Existing bare-endpoint routes stay unauthenticated; protection is

@@ -26,6 +26,7 @@ class LinuxNamespacesTest < Minitest::Test
         File.stub(:open, proc { |*_| raise "must not open namespace targets" }) do
           _, _, data = namespace_response
           assert_equal({ "future_ns" => "future_ns:[123]", "net" => "net:[123]" }, data["process"]["linux"]["namespaces"]["entries"])
+          assert_equal "directory", data["process"]["linux"]["namespaces"]["discovery"]
           assert_equal [[:directory, "/proc/self/ns"], [:link, "/proc/self/ns/future_ns"], [:link, "/proc/self/ns/net"]], events
           assert_empty data["errors"]
         end
@@ -43,7 +44,8 @@ class LinuxNamespacesTest < Minitest::Test
           File.stub(:open, proc { |*_| raise "must not open namespace targets" }) do
             _, _, data = namespace_response
             info = data["process"]["linux"]["namespaces"]
-            assert_equal %w[entries limit truncated], info.keys.sort
+            assert_equal %w[discovery entries limit truncated], info.keys.sort
+            assert_equal "known_names_fallback", info["discovery"]
             assert_equal NAMES, info["entries"].keys
             assert_equal 64, info["limit"]
             assert_equal false, info["truncated"]
@@ -67,6 +69,7 @@ class LinuxNamespacesTest < Minitest::Test
         _, _, data = namespace_response
         assert_equal NAMES, seen
         refute data["process"]["linux"]["namespaces"]["entries"].key?("future_ns")
+        assert_equal "known_names_fallback", data["process"]["linux"]["namespaces"]["discovery"]
         assert_empty data["errors"]
       end
     end
@@ -131,7 +134,7 @@ class LinuxNamespacesTest < Minitest::Test
     Dir.stub(:foreach, proc { |*_| raise Errno::EPERM }) do
       File.stub(:readlink, proc { |path| seen << path; raise Errno::ENOENT }) do
         _, _, data = namespace_response
-        assert_equal({ "limit" => 64, "truncated" => false, "entries" => {} }, data["process"]["linux"]["namespaces"])
+        assert_equal({ "limit" => 64, "truncated" => false, "discovery" => "known_names_fallback", "entries" => {} }, data["process"]["linux"]["namespaces"])
         assert_equal NAMES.size, seen.size
         assert_equal Process.pid, data["process"]["pid"]
         assert_empty data["errors"]
@@ -163,6 +166,40 @@ class LinuxNamespacesTest < Minitest::Test
         _, _, data = namespace_response("-all,#{PATH}.entries.net,errors")
         assert_equal({ "entries" => { "net" => "net:[123]" } }, data["process"]["linux"]["namespaces"])
         assert_equal ["/proc/self/ns/net"], seen
+        assert_empty data["errors"]
+      end
+    end
+  end
+
+  def test_discovery_only_selects_directory_without_reading_links
+    directories = []
+    Dir.stub(:foreach, proc { |path, &block| directories << path; block.call("net") }) do
+      File.stub(:readlink, proc { |*_| raise "must not read namespace links" }) do
+        _, _, data = namespace_response("-all,#{PATH}.discovery,errors")
+        assert_equal({ "discovery" => "directory" }, data["process"]["linux"]["namespaces"])
+        assert_equal ["/proc/self/ns"], directories
+        assert_empty data["errors"]
+      end
+    end
+  end
+
+  def test_discovery_only_selects_fallback_without_reading_links
+    directories = []
+    Dir.stub(:foreach, proc { |path| directories << path; raise Errno::EACCES }) do
+      File.stub(:readlink, proc { |*_| raise "must not read namespace links" }) do
+        _, _, data = namespace_response("-all,#{PATH}.discovery,errors")
+        assert_equal({ "discovery" => "known_names_fallback" }, data["process"]["linux"]["namespaces"])
+        assert_equal ["/proc/self/ns"], directories
+        assert_empty data["errors"]
+      end
+    end
+  end
+
+  def test_discovery_can_be_explicitly_excluded
+    Dir.stub(:foreach, proc { |_, &block| block.call("net") }) do
+      File.stub(:readlink, "net:[123]") do
+        _, _, data = namespace_response("-all,#{PATH},-#{PATH}.discovery,errors")
+        assert_equal({ "limit" => 64, "truncated" => false, "entries" => { "net" => "net:[123]" } }, data["process"]["linux"]["namespaces"])
         assert_empty data["errors"]
       end
     end

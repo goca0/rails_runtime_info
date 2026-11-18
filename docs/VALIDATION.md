@@ -1,5 +1,58 @@
 # Validation record
 
+## Version 0.7.3 - executed review and release tests on 2026-11-18
+
+Starting from the verified v0.7.2 full bundle at
+`b15c2a258e447eaf0dd15436620851d55eef1225`, this change reports how
+`process.linux.namespaces` was discovered: `"directory"` after successful
+Dir.foreach, or `"known_names_fallback"` after EACCES/EPERM. The marker is
+derived from existing request-local discovery metadata; no additional syscalls,
+hooks, native bindings, locks or retained state were introduced. Discovery-only
+selection enumerates candidates but never reads links, while limit-only
+selection continues to do neither. FD output remains unchanged.
+
+**This validation environment does have Ruby.** Tests executed on Debian 13
+(Trixie) x86_64, Linux 6.18.57, CRuby 3.3.8, Minitest 5.20.0 and Bundler
+2.5.22. The v0.7.3 standalone suite passed **341 tests, 1732 assertions,
+zero failures, errors or skips**, with seeds 24680 and 43210. Added cases cover
+both discovery methods, discovery-only selection without link reads, omission
+through a dotted exclusion, and unchanged FD output. All library, test and
+script Ruby files passed syntax checks. The gem built as 0.7.3 with the existing
+missing-homepage warning. Bundler automatic and explicit loading smoke checks
+both passed. Rack::Lint could not run because Rack is not installed.
+
+The live nondumpable-process case was exercised in a *separate unprivileged
+Ruby subprocess*, not inside the test runner. After
+`prctl(PR_SET_DUMPABLE, 0)`, directory listing of `/proc/self/ns` raised
+Errno::EACCES while `readlink('/proc/self/ns/net')` succeeded. **240 concurrent
+diagnostic requests** (12 threads x 20) returned HTTP 200, a
+`"known_names_fallback"` discovery value, a readable `net` namespace link,
+structured limits and no collector errors. The subprocess used only synthetic
+request data and no live application credentials. This demonstrates the
+fallback on the stated Linux kernel, not on CentOS 6 or a patched Ruby build.
+
+### Post-release executable validation of v0.7.1 and v0.7.2
+
+The older release entries below accurately record what could be tested *when
+those releases were produced* in an environment without Ruby. They do not
+describe this later review environment. Reusing the original release commits:
+
+- **v0.7.1:** 322 tests, 1620 assertions, zero failures/errors/skips, executed
+  from the v0.7.1 Git tag with CRuby 3.3.8, seed 24680.
+- **v0.7.2:** 338 tests, 1716 assertions, zero failures/errors/skips, executed
+  from the v0.7.2 Git bundle with CRuby 3.3.8, seeds 24680 and 43210.
+- **v0.7.2:** Bundler's automatic and explicit loading checks passed. Its
+  Rack::Lint script could not run without an installed Rack gem.
+
+The previous independent review additionally checked the v0.7.1/v0.7.2 Git
+bundles, Ruby syntax and gem build, and exercised the original fallback under
+real PR_SET_DUMPABLE restrictions. The v0.7.3 live check above independently
+repeats that operating-system scenario with the new discovery field.
+
+These executable checks improve confidence in the two earlier commits, but do
+not establish Ruby 2.4/2.5/3.4, Rails 5.1+, real Passenger/Puma integration or
+CentOS 6 kernel compatibility. Rack::Lint is still pending.
+
 ## Version 0.7.2 - review and Git validation on 2026-11-18
 
 This is a separate commit after v0.7.1,

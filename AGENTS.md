@@ -74,10 +74,13 @@ required.
   time, time_for_children, user, uts). Respect selection before each readlink;
   skip ordinary failed fallback probes without null/error entries, including
   missing old-kernel names. Fatal exceptions still propagate. Preserve normal
-  enumeration/FD error handling and the existing JSON shape. An empty fallback
-  means no selected readable links, not no namespaces; truncated=false is not
-  proof of exhaustive discovery. Do not alter dumpability, permissions or
-  namespace membership, or add open/stat/access checks of symlink targets.
+  enumeration/FD error handling. Report namespaces.discovery as "directory" or
+  "known_names_fallback" when discovered; a discovery-only selector enumerates
+  without reading links, whereas limit-only selection still skips discovery.
+  Do not add a discovery field to FD details. An empty fallback means no
+  selected readable links, not no namespaces; truncated=false is not proof of
+  exhaustive discovery. Do not alter dumpability, permissions or namespace
+  membership, or add open/stat/access checks of symlink targets.
 - Keep cgroup resource usage/limits deferred in TODO.md. Preserve only the
   existing raw cgroup membership text; implement no snapshot-delta sampling.
 - HTTP request headers and explicitly selected ENV values stay unredacted.
@@ -209,7 +212,9 @@ structured-only JSON, bounded reads, nested selection, skipped/non-Linux reads,
 independent ordinary failures and fatal propagation.
 Test namespace directory-first discovery, EACCES/EPERM fallback, missing versus
 unexpected directory errors, known/unknown names, partial/all failed probes,
-bounded links, selected/excluded names, summary-only requests and fatal errors.
+bounded links, selected/excluded names, discovery-only and summary-only
+requests, and fatal errors. Verify that namespace discovery is reported
+accurately and that FD details do not gain a discovery field.
 Keep simulated dumpability restrictions distinct from actual patched-Ruby runs.
 Test delay boundaries/duplicates/encoding, auth-before-validation-before-sleep,
 invalid-what rejection before waiting, zero/default no-op, no pre-wait snapshot

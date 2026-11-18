@@ -146,6 +146,7 @@ class LinuxInventoryTest < Minitest::Test
         assert_equal Process.pid, data["process"]["pid"]
         info = data["process"]["linux"]["fd_details"]
         assert_equal 1024, info["limit"]
+        refute info.key?("discovery")
         assert_nil info["entries"]["5"]
         assert_equal "socket:[987]", info["entries"]["6"]
         assert_equal ["process.linux.fd_details.entries.5"], data["errors"].keys

@@ -297,13 +297,17 @@ module RailsRuntimeInfo
       path = "process.linux.#{key}"
       return unless @selection.requested?(path)
       result = { "limit" => limit }
-      if @selection.requested?("#{path}.entries") || @selection.requested?("#{path}.truncated")
+      if @selection.requested?("#{path}.entries") || @selection.requested?("#{path}.truncated") ||
+         (key == "namespaces" && @selection.requested?("#{path}.discovery"))
         begin
           listing = yield
         rescue Errno::ENOENT, Errno::ENOTDIR
           return # Optional procfs facility, notably on older kernels.
         end
         result["truncated"] = listing.fetch("truncated")
+        if key == "namespaces"
+          result["discovery"] = listing["known_names_fallback"] ? "known_names_fallback" : "directory"
+        end
         if @selection.requested?("#{path}.entries")
           result["entries"] = {}
           listing.fetch("names").each do |name|

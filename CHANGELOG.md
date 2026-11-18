@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.3
+
+- Add `process.linux.namespaces.discovery` to distinguish successful directory
+  enumeration (`"directory"`) from permission-denied known-name probing
+  (`"known_names_fallback"`). The value describes the discovery method, not
+  whether the namespace inventory is complete.
+- Preserve readlink-only fallback behavior and non-invasive collection. A
+  discovery-only selector enumerates the namespace directory without reading
+  any links; limit-only selection continues to skip enumeration entirely.
+  FD details are unchanged. Add focused selection, fallback and omission tests.
+- Document executed v0.7.1/v0.7.2 Ruby validation, including the unprivileged
+  `PR_SET_DUMPABLE=0` live test, and validate this release under Ruby 3.3.8.
+
 ## 0.7.2
 
 - Keep Dir.foreach as the first namespace discovery method. If listing
