@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.1
+
+- Change process.linux.limits from raw /proc/self/limits text to a structured
+  object keyed by snake_case resource names, with soft, hard and units fields.
+  Finite limits are JSON integers, unlimited remains the string "unlimited",
+  and omitted units become null. No raw copy is included anywhere in the output.
+- Parse whitespace-separated value columns without assuming padding widths;
+  handle 20-digit integers, compact/tab-separated rows and optional units.
+  Skip headers and malformed rows without requiring a fixed resource list.
+- Preserve the 64 KiB read bound, dotted selection, independent error handling
+  and request-local state. Add focused regression tests and document this
+  output-type change. Ruby execution was unavailable in the release container;
+  see docs/VALIDATION.md for the exact validation limits.
+
 ## 0.7.0
 
 - Add default-on bounded Ruby thread inventory with identity, status, name and

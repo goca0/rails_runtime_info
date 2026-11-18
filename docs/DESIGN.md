@@ -403,6 +403,28 @@ authentication-before-collection, delay, secret omissions and presentation
 order are unchanged. Structured cgroup reporting remains in TODO.md; the old
 raw membership read remains. No snapshot deltas are introduced.
 
+## Structured process limits (0.7.1)
+
+`process.linux.limits` retains the existing read of `/proc/self/limits`, bounded
+to 64 KiB, but passes its temporary text to `LinuxProcess.parse_limits`. The
+result is a map from normalized resource names to soft/hard/units. There is no
+raw-text output or fallback, no getrlimit call and no additional file access.
+
+The parser processes each line separately using horizontal whitespace between
+name/value/unit tokens. Kernel padding widths are minimums, so it does not rely
+on two spaces or fixed column positions: a 20-digit finite value can leave only
+one separator. Header layout is irrelevant because header rows do not match.
+ASCII resource words and optional unit tokens are accepted without a fixed
+resource list. Finite values use Integer(text, 10), unlimited stays a string,
+and absent units become nil. Headers/malformed lines are skipped independently;
+an empty result is valid best-effort output. No line joins across newlines.
+
+The existing capture boundary checks selection before reading, normalizes the
+parsed primitives and records ordinary file/parser failures under
+process.linux.limits. Dotted selection projects the parsed fields afterward.
+Fatal exceptions propagate. All input, match data and result objects are local
+to the current request; nothing is cached or shared across requests.
+
 ## Upstream references consulted
 
 These references explain the underlying interfaces; they do not substitute for

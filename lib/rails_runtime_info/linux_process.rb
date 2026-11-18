@@ -21,6 +21,26 @@ module RailsRuntimeInfo
       result
     end
 
+    # Column widths are minimums: a large integer can leave only one space
+    # between values. Parse the value columns, not runs of padding or offsets.
+    # Names/units are ASCII tokens; unknown rows are optional diagnostics.
+    def self.parse_limits(text)
+      result = {}
+      text.each_line do |line|
+        match = /\A[ \t]*([A-Za-z][A-Za-z0-9_-]*(?:[ \t]+[A-Za-z][A-Za-z0-9_-]*)*)
+          [ \t]+(unlimited|[0-9]+)[ \t]+(unlimited|[0-9]+)
+          (?:[ \t]+([A-Za-z][A-Za-z0-9_-]*))?[ \t]*\z/x.match(line.chomp)
+        next unless match
+        name = match[1].downcase.gsub(/[^a-z0-9]+/, "_").sub(/_+\z/, "")
+        result[name] = {
+          "soft" => match[2] == "unlimited" ? "unlimited" : Integer(match[2], 10),
+          "hard" => match[3] == "unlimited" ? "unlimited" : Integer(match[3], 10),
+          "units" => match[4]
+        }
+      end
+      result
+    end
+
     def self.fd_count
       count = 0
       Dir.foreach("/proc/self/fd") { |name| count += 1 unless name == "." || name == ".." }

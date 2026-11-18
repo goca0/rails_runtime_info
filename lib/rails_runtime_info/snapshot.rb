@@ -212,8 +212,10 @@ module RailsRuntimeInfo
       }.each do |key, path|
         capture(result, key, "process.linux.#{key}") { LinuxProcess.fields(LinuxProcess.read(path)) }
       end
+      capture(result, "limits", "process.linux.limits") do
+        LinuxProcess.parse_limits(LinuxProcess.read("/proc/self/limits"))
+      end
       {
-        "limits" => "/proc/self/limits",
         "cgroup" => "/proc/self/cgroup",
         "os_release" => "/etc/os-release"
       }.each do |key, path|

@@ -1,5 +1,43 @@
 # Validation record
 
+## Version 0.7.1 - review and Git validation on 2026-11-18
+
+Started from the supplied v0.7.0 full bundle at
+`6c327e62f3e16ebc61a5704c9e64540cc742c950`; its SHA-256 matched
+`c4e85678afa43a2fdf959a087212113c821066686d0bec3bf3ba11d29cb1668f`.
+Prior commits and annotated release tags are preserved. This release changes
+only the process-limits representation and related tests/documentation.
+
+The current container is Debian 13.6 on Linux 6.18.57 x86_64. **No Ruby runtime
+is installed.** The standalone Minitest suite, Ruby syntax checks, gem build,
+Bundler smoke test and Rack::Lint were not executed for this release. Earlier
+passing results below apply to their stated releases, not to these changes.
+No dependencies were installed or fetched to work around this limitation.
+
+Static review covers Ruby 2.4-compatible syntax/APIs, one existing bounded read,
+request-local data, no raw-file output, selector handling and ordinary/fatal
+exception boundaries. Thirteen focused tests were added for padded/compact/tab
+rows, exact 20-digit integer parsing, unlimited/absent units, CRLF, unknown
+resource names, malformed rows, structured-only endpoint output, the existing
+64 KiB read bound, dotted/excluded/non-Linux selectors and isolated failures.
+One of those tests reads the live procfs limits when run on Linux. These tests
+are present but **unexecuted** in this environment.
+
+Release delivery verifies Git whitespace, bundle prerequisites, full restoration
+and incremental application from v0.7.0, matching commit/tree/annotated-tag
+objects, clean restored working trees and git fsck --full --strict. These are
+repository-integrity checks, not Ruby execution. The incremental bundle requires
+the v0.7.0 commit above and its history.
+
+To execute the standalone suite in a prepared environment:
+
+```sh
+ruby script/test --seed 24680
+```
+
+Ruby 2.4+, Rails 5.1+ remain targets. This release adds no new claims of Ruby,
+Rails, Passenger, Puma or CentOS 6 execution coverage.
+
 ## Version 0.7.0 - executed on 2026-11-17
 
 Started from the supplied v0.6.0 full bundle, whose SHA-256 matched

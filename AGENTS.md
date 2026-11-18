@@ -56,6 +56,13 @@ required.
 - Current-thread CPU time reuses stat fields 14/15 and SC_CLK_TCK, separately
   guarded from age and TID. No extra task-stat read, sampling interval or delta.
   CPU-only selection must not read uptime; TID-only skips CPU and age conversion.
+- Process limits use only the existing bounded /proc/self/limits read. Replace
+  raw contents with a map of snake_case resource names to soft/hard/units.
+  Finite values are base-10 Integers, unlimited remains a string, and absent
+  units are nil. Parse horizontal whitespace, not fixed offsets or 2+ spaces;
+  full-width integers may have a single separator. Skip headers/malformed rows,
+  accept additional resource names, retain no raw copy and add no getrlimit calls.
+  Respect selection before reading and isolate ordinary file/parser failures.
 - FD link details are opt-in via process.linux.fd_details; cap at 1024 entries
   plus one lookahead. Namespace links are default-on, capped at 64 plus one.
   Directory enumeration/readlink only; never open/follow/duplicate/use a target,
@@ -187,6 +194,10 @@ selectors. Test CPU units, bad ticks and independent age failures; FD/namespace
 limits, missing directories, readlink-only behavior, per-link races, nested
 selection and descriptor cleanup. Keep synthetic tests distinct from live VM/
 procfs tests; do not assert an atomic process-wide snapshot or hard VM deadline.
+Test limits parsing with padded/compact/tab-separated rows, full-width integers,
+unlimited values, missing units, unknown names, malformed lines and CRLF. Verify
+structured-only JSON, bounded reads, nested selection, skipped/non-Linux reads,
+independent ordinary failures and fatal propagation.
 Test delay boundaries/duplicates/encoding, auth-before-validation-before-sleep,
 invalid-what rejection before waiting, zero/default no-op, no pre-wait snapshot
 or body reads, all methods/HEAD, unchanged JSON, exceptions and cleanup. Include

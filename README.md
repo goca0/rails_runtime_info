@@ -33,7 +33,7 @@ observed, not required or reconfigured.
 Restore the repository from the supplied full Git bundle:
 
 ```sh
-git clone rails_runtime_info-0.7.0-full.bundle rails_runtime_info
+git clone rails_runtime_info-0.7.1-full.bundle rails_runtime_info
 ```
 
 For an adjacent local checkout, add this to the application's Gemfile in a group
@@ -295,7 +295,14 @@ These are implementation targets, not a claim that every version combination
 has been tested. See [validation](docs/VALIDATION.md) for exactly what was run.
 The application itself must support its chosen Ruby/Rails/Rack combination.
 
-## New in 0.7.0
+## New in 0.7.1
+
+`process.linux.limits` is now a structured object instead of a raw text string.
+Resource names are snake_case keys with `soft`, `hard` and `units` fields.
+The raw file contents are no longer returned. Any consumer expecting a string
+must adapt; no route changes or new dependencies are required.
+
+## Added in 0.7.0
 
 Basic thread inventory, current-native-thread CPU counters and Linux namespace
 IDs are included by default. Thread backtraces and detailed FD links are opt-in.
@@ -315,7 +322,7 @@ deltas are not implemented.
 | `gc` | Complete results of available `GC.stat`, `GC.latest_gc_info` and `GC.stat_heap` calls. |
 | `yjit` | Availability, enabled/statistics flags where supported and the complete available `runtime_stats` result, including `null` when returned by Ruby. |
 | `process` | PID/PPID, user/group IDs, Ruby thread count, bounded thread inventory, opt-in backtraces, CPU time, working directory, program name, arguments and `Etc.uname`. No account-name or hostname lookup is performed. |
-| `process.linux` | `/proc/self/status`, `smaps_rollup`, I/O counters, limits, raw cgroup membership, command line, executable link, FD count and opt-in link details, namespace link IDs, estimated process/current native-thread lifetimes and current-thread CPU time, OS release and allocator-library hints. |
+| `process.linux` | `/proc/self/status`, `smaps_rollup`, I/O counters, structured resource limits, raw cgroup membership, command line, executable link, FD count and opt-in link details, namespace link IDs, estimated process/current native-thread lifetimes and current-thread CPU time, OS release and allocator-library hints. |
 | `server` | Rack's server-software value, existing Passenger version information, and optional `passenger.thread_iteration` / `puma.requests_count` readings from the current handler/server. A loaded version constant alone does not prove which server handled the request. |
 | `request` | Method, URI fields, query string, scheme/protocol/address metadata, all available HTTP header values, reconstructed URL, safe Rack-environment snapshot and opt-in bounded raw body. |
 | `errors` | Independently failed collectors, with exception class and best-effort message. |
@@ -324,6 +331,38 @@ No database collector is present, not even connection-pool inspection. There
 are no SQL queries, database connections, Redis calls, job-adapter initialization,
 network calls, external commands or application-health checks. There are no
 custom collector callbacks in this version.
+
+### Process resource limits (0.7.1)
+
+`process.linux.limits` parses `/proc/self/limits` into an object such as this
+illustrative fragment:
+
+```json
+{
+  "max_open_files": { "soft": 1024, "hard": 1048576, "units": "files" },
+  "max_address_space": { "soft": "unlimited", "hard": "unlimited", "units": "bytes" },
+  "max_nice_priority": { "soft": 0, "hard": 0, "units": null }
+}
+```
+
+Finite values are parsed as base-10 Ruby Integers and emitted as JSON integers;
+they are not converted through floating point. `"unlimited"` stays a string,
+and missing units become `null`. Resource names are normalized to snake_case.
+No fixed list of resources or column widths is assumed. Headers and malformed
+rows are skipped; an empty or wholly unrecognized file produces `{}`. A failed
+read or parser produces `null` and `errors["process.linux.limits"]` as usual.
+
+This remains one bounded file read, at most **64 KiB**, with no `getrlimit`
+calls, hooks or retained state. Oversize files are rejected rather than parsed
+as a partial success. The raw contents are neither returned nor cached. Cgroup
+membership remains a separate raw-text field.
+
+```text
+?what=-all,process.linux.limits.max_open_files,errors
+```
+
+Dotted selection filters the parsed values. Excluding the entire limits field
+skips both reading and parsing.
 
 ### Process and current native-thread age
 
@@ -867,26 +906,26 @@ A Git bundle carries commits/refs, not the source repository's local Git config.
 
 ### Full and incremental bundles
 
-The full `rails_runtime_info-0.7.0-full.bundle` can be cloned into an empty
-location using the command above. It includes `main`, `v0.7.0` and all previous
+The full `rails_runtime_info-0.7.1-full.bundle` can be cloned into an empty
+location using the command above. It includes `main`, `v0.7.1` and all previous
 history/tags.
 
-The smaller `rails_runtime_info-0.7.0-incremental.bundle` requires the existing
-commit `dc8576fc2757f09f4b9581415981300d298d4b85` (v0.6.0) and its history. It
-contains only the new history plus the `main` and `v0.7.0` refs; it cannot be
+The smaller `rails_runtime_info-0.7.1-incremental.bundle` requires the existing
+commit `6c327e62f3e16ebc61a5704c9e64540cc742c950` (v0.7.0) and its history. It
+contains only the new history plus the `main` and `v0.7.1` refs; it cannot be
 cloned into an empty repository. From a clean existing checkout on the branch
 you intend to update, with the bundle in its parent directory:
 
 ```sh
-git bundle verify ../rails_runtime_info-0.7.0-incremental.bundle
+git bundle verify ../rails_runtime_info-0.7.1-incremental.bundle
 ```
 
 ```sh
-git fetch ../rails_runtime_info-0.7.0-incremental.bundle refs/heads/main refs/tags/v0.7.0:refs/tags/v0.7.0
+git fetch ../rails_runtime_info-0.7.1-incremental.bundle refs/heads/main refs/tags/v0.7.1:refs/tags/v0.7.1
 ```
 
 ```sh
-git merge --ff-only v0.7.0
+git merge --ff-only v0.7.1
 ```
 
 The fast-forward requirement refuses a diverged branch rather than rewriting
