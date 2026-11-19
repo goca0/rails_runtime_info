@@ -305,7 +305,7 @@ class DelayEndpointTest < Minitest::Test
 
   def test_delayed_response_does_not_retain_request_or_delay_objects
     Kernel.stub(:sleep, proc { |_| 0 }) do
-      rack_response, weak = response_with_weak_reference
+      rack_response, weak = Thread.new { response_with_weak_reference }.value
       3.times { GC.start } # Test only.
       refute weak.weakref_alive?
       body = rack_response.last

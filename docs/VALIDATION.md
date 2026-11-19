@@ -1,5 +1,67 @@
 # Validation record
 
+## Unreleased - Ruby 2.5 minimum and weak-reference checks, 2026-11-19
+
+The gem requires Ruby 2.5 or newer. This keeps the block-level `ensure` in
+the thread test. RubyGems on Ruby 2.4.10 rejected installation of the built
+gem with the new version requirement. The previous Ruby 2.4.10 / Rails 5.1.7
+fixture falls below this minimum. The executed Rails matrix starts at 6.1.7.10.
+
+The `v0.7.3` baseline reproduced four weak-reference failures on Ruby 2.5.9,
+one on 3.1.7, and one on 3.4.12 with each seed. The 3.1.7 Passenger handler
+assertion also failed when the endpoint returned a static response. In the
+updated tests, short-lived worker threads release the request stacks before
+collection, and the synthetic Puma class releases its current-server reference
+during teardown. Both counter values are checked in the returned response.
+On 3.1.7, intentionally keeping each server object in the response body caused
+its corresponding weak-reference assertion to fail.
+
+### Standalone and packaging checks
+
+Executed on Debian 13.6, Linux 6.18.57, x86-64. Each standalone run used
+`ruby script/test` with seed 24680 or 43210 and ran 341 tests with zero failures
+or errors. Counts below are per seed. `ruby -S rake` also passed on each
+interpreter with the listed generated seed.
+
+| CRuby | RubyGems | Minitest | Bundler smoke | Assertions | Skips | Rake seed |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| 2.5.9 | 2.7.6.3 | 5.15.0 | 2.3.27 | 1,711 | 2 | 16299 |
+| 2.7.8 | 3.1.6 | 5.15.0 | 2.3.27 | 1,711 | 2 | 41947 |
+| 3.1.7 | 3.3.27 | 5.15.0 | 2.6.9 | 1,735 | 0 | 55011 |
+| 3.3.13 | 3.5.22 | 5.20.0 | 2.6.9 | 1,735 | 0 | 3358 |
+| 3.4.12 | 3.6.9 | 5.25.4 | 2.6.9 | 1,735 | 0 | 25841 |
+
+The two skips on each older Ruby require `Thread#native_thread_id`. All five
+interpreters passed tracked Ruby syntax checks, both Bundler loading modes,
+Rack::Lint with Rack 2.2.25 and 3.2.8, and endpoint activation from a built gem
+installed in an isolated gem directory. Each also passed the focused auth suite
+(52 tests, 275 assertions per seed) and the auth/delay subset (3 tests,
+23 assertions).
+
+### Rails, loopback servers, and Linux checks
+
+All six initialized Rails fixture contracts passed using the local path gem.
+
+| CRuby | Rails | Rack |
+| --- | --- | --- |
+| 2.7.8 | 6.1.7.10 | 2.2.25 |
+| 3.1.7 | 7.1.6 | 3.2.8 |
+| 3.1.7 | 7.2.4 | 3.2.8 |
+| 3.3.13 | 8.0.5.2 | 3.2.8 |
+| 3.4.12 | 7.2.4 | 3.2.8 |
+| 3.4.12 | 8.1.4.1 | 3.2.8 |
+
+The loopback HTTP contract passed on Ruby 3.4.12 with Puma 8.1.2 and Rails
+7.2.4 in both one-worker and two-worker modes, and with Passenger Standalone
+6.2.2, Nginx 1.30.6, and Rails 8.1.4.1 with two workers. Each run verified
+advancing worker counters, overlapping delays, and 94 Basic auth checks,
+including password-file rotation and fail-closed responses.
+
+Ruby 3.4.12 also passed YJIT-enabled reporting and the live
+`PR_SET_DUMPABLE=0` check. All 60 concurrent requests in that check recovered
+the selected namespace via `known_names_fallback` and returned structured
+limits. The procfs checks used the Linux kernel above.
+
 ## Version 0.7.3 - executed review and release tests on 2026-11-18
 
 Starting from the verified v0.7.2 full bundle at

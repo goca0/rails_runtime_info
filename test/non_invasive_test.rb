@@ -108,7 +108,7 @@ class NonInvasiveTest < Minitest::Test
   end
 
   def test_response_does_not_retain_request_environment
-    rack_response, weak = response_and_weak_reference
+    rack_response, weak = Thread.new { response_and_weak_reference }.value
     # Forced GC is used in this TEST only, never in library code.
     3.times { GC.start }
     refute weak.weakref_alive?

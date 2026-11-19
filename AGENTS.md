@@ -10,8 +10,8 @@ required.
 
 ## Non-negotiable runtime constraints
 
-- Target Ruby 2.4+ and Rails 5.1+; optional APIs must be guarded. Do not introduce
-  Ruby 2.5+ conveniences or syntax without a deliberate compatibility decision.
+- Target Ruby 2.5+ and Rails 5.1+. Guard optional APIs and keep source and test
+  syntax compatible with Ruby 2.5.
 - No Railtie, Engine, global middleware, initializer, route registration, hooks,
   instrumentation, monkey patches, persistent counters, caches or threads.
 - Requiring the gem must define code only, load only its own implementation,
@@ -161,23 +161,38 @@ this distinction in documentation.
 
 ## Development workflow
 
-Run standalone tests from the repository root:
+Use the existing checkout in the workspace and preserve unrelated edits. Run
+the standalone suite from the repository root with an installed Ruby and
+Minitest. It runs without Rails, Rack, or Bundler.
 
 ```sh
-ruby script/test
+ruby script/test --seed 24680
+ruby script/test --seed 43210
 ```
 
-Build locally when needed:
+If Ruby is missing from `PATH`, check for the installed compatibility kit at
+`/workspace/.rails-runtime-info/compat`. Its `ruby-env` selects an interpreter
+and matching Bundler by exact version. The kit's `verify-ruby VERSION` runs
+syntax checks, both seeds, Bundler, Rack::Lint, and a built-gem smoke test.
+Use `verify-auth-ruby VERSION` for the focused authentication suite and
+`verify-fixture TARGET` for installed Rails fixtures. Select fixture rows
+from `targets.tsv` that meet the gem's Ruby requirement. Use `verify-server.py`
+for loopback Puma and Passenger checks and `verify-yjit` or
+`verify-dumpability` for the corresponding runtime checks. The kit is optional.
+
+Without the kit, use `ruby script/rack_lint` with an installed Rack and
+`ruby script/bundler_smoke` for the two local Bundler loading modes. Build from
+a scratch directory containing a copy of the source when testing a package.
 
 ```sh
 gem build rails_runtime_info.gemspec
 ```
 
-Do not install dependencies, fetch network resources, boot applications, run
-Rails tests, contact services or publish artifacts without explicit permission.
-The default tests run without Rails, Rack or Bundler. `script/rack_lint` is an
-optional check using an already-installed Rack. Never treat synthetic Rails
-objects as proof of full Rails integration compatibility.
+Run local tests, builds, disposable Rails fixtures, and loopback servers as
+part of development. Prefer installed runtimes and cached gems. When setup is
+needed, use the environment's package access and keep dependencies isolated to
+the project or test fixture. Use synthetic data and credentials. Reserve live
+application and service access for tasks that authorize it.
 
 Add focused regression tests for behavior changes. Test absent APIs, nil and
 non-finite statistics, invalid strings, body boundaries, collector failures,
@@ -221,8 +236,7 @@ invalid-what rejection before waiting, zero/default no-op, no pre-wait snapshot
 or body reads, all methods/HEAD, unchanged JSON, exceptions and cleanup. Include
 concurrent delayed/no-delay requests and a small real fractional sleep. Tests
 may use controlled stubs/barriers but must distinguish them from live servers.
-Do not add live diagnostic output or real secrets to fixtures. Keep commands
-on one physical line; longer Ruby source files may use normal multiline style.
+Do not add live diagnostic output or real secrets to fixtures.
 
 Update README and docs/VALIDATION.md when behavior or tested environments
 change. Clearly separate supported targets from actually executed tests. Do
@@ -230,9 +244,13 @@ not claim Ruby/Rails version coverage that was not run.
 
 ## Repository and publication
 
-Preserve the private-publication safeguard and unselected license unless the
-owner explicitly decides otherwise. Do not invent a remote repository URL.
-Use this commit identity, configured locally before commits:
+Preserve the gem's private-publication safeguard and license. Use the checkout's
+configured remote for authorized pushes and keep credentials out of files and
+logs. Use a normal fast-forward push. When no upstream or target branch is
+set, use a topic branch. Report remote access failures and keep local work intact.
+
+Use the repository's commit identity unless the owner specifies another. If
+needed, set it in this checkout:
 
 ```sh
 git config user.email git.codex.91ndg9n33q@hodor.cz
@@ -242,11 +260,11 @@ git config user.email git.codex.91ndg9n33q@hodor.cz
 git config user.name 'Jan Seda'
 ```
 
-When asked for a full bundle, commit intended files, include all refs/history,
-verify it, and restore it into an empty location. A bundle is not a working-tree
-archive and does not contain uncommitted files or local Git configuration.
-
-For incremental bundles, explicitly exclude the agreed base commit and include
-the release branch and annotated tag. Verify and apply the bundle to a separate
-clone of that base release; compare HEAD/tree/tag to a full-bundle clone and run
-tests there. Document the prerequisite commit and safe fast-forward commands.
+Create bundles when requested. For a full bundle, include all refs and history,
+verify it, and restore it into an empty directory. For an incremental bundle,
+exclude the agreed base commit and include the requested commit ref. Include
+an annotated tag when delivering a tagged release. Restore an incremental
+bundle in a separate checkout containing the base, verify and fast-forward it,
+and compare the restored commit, tree, and any included tags to the source.
+Run tests from the restored checkout and provide the SHA-256, prerequisite
+commit, and fast-forward commands with the bundle.

@@ -353,7 +353,7 @@ class ThreadLifetimeTest < Minitest::Test
   end
 
   def test_response_does_not_retain_stat_snapshot
-    rack_response, weak = response_with_weak_stat_reference
+    rack_response, weak = Thread.new { response_with_weak_stat_reference }.value
     3.times { GC.start } # Tests only; no forced collection in the library.
     refute weak.weakref_alive?
     assert_equal [:@content], rack_response.last.instance_variables

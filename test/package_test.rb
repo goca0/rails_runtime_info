@@ -12,11 +12,11 @@ class PackageTest < Minitest::Test
     assert_equal RailsRuntimeInfo::VERSION, specification.version.to_s
   end
 
-  def test_no_runtime_dependencies_and_ruby_24_target
+  def test_no_runtime_dependencies_and_ruby_25_target
     spec = specification
     assert_equal [], spec.runtime_dependencies
-    assert spec.required_ruby_version.satisfied_by?(Gem::Version.new("2.4.0"))
-    refute spec.required_ruby_version.satisfied_by?(Gem::Version.new("2.3.9"))
+    assert spec.required_ruby_version.satisfied_by?(Gem::Version.new("2.5.0"))
+    refute spec.required_ruby_version.satisfied_by?(Gem::Version.new("2.4.10"))
   end
 
   def test_documentation_and_implementation_are_packaged

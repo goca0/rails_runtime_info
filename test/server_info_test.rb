@@ -16,14 +16,21 @@ class ServerInfoTest < Minitest::Test
   end
 
   def with_puma_server(server)
-    server_class = Class.new
-    server_class.define_singleton_method(:current) { server }
+    server_class = Class.new do
+      class << self
+        attr_accessor :current
+      end
+    end
+    server_class.current = server
     puma = Module.new
     puma.const_set(:Server, server_class)
     # A counter read must not obtain a broader, potentially mutating snapshot.
     def puma.stats; raise "must not call Puma.stats"; end
     def puma.stats_hash; raise "must not call Puma.stats_hash"; end
     with_constant(Object, :Puma, puma) { yield server_class }
+  ensure
+    # Release the fixture even if the VM still holds the temporary class.
+    server_class.current = nil if server_class
   end
 
   def server_response(expression = "-all,server,errors")
@@ -362,11 +369,17 @@ class ServerInfoTest < Minitest::Test
   end
 
   def test_response_does_not_retain_handler_or_server
-    rack_response, weak_handler, weak_server = response_with_weak_server_references
+    rack_response, weak_handler, weak_server = Thread.new { response_with_weak_server_references }.value
     3.times { GC.start } # Tests only; library code must never force GC.
     refute weak_handler.weakref_alive?
     refute weak_server.weakref_alive?
     assert_equal [:@content], rack_response.last.instance_variables
+    assert_equal 200, rack_response.first
+    text = String.new
+    rack_response.last.each { |chunk| text << chunk }
+    server = JSON.parse(text).fetch("server")
+    assert_equal 31, server.dig("passenger", "thread_iteration")
+    assert_equal 42, server.dig("puma", "requests_count")
     rack_response.last.close
   end
 end

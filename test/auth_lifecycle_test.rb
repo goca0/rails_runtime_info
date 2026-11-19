@@ -97,7 +97,7 @@ class AuthLifecycleTest < Minitest::Test
   def test_wrapper_and_response_do_not_retain_request_or_password_file_contents
     app = RailsRuntimeInfo::Endpoint.basic_auth(htpasswd: "/fixture/not-read")
     [true, false].each do |allow|
-      response, env_ref, content_ref = auth_response_with_weak_references(app, allow)
+      response, env_ref, content_ref = Thread.new { auth_response_with_weak_references(app, allow) }.value
       # TEST-ONLY forced GC, never performed by the authentication implementation.
       3.times { GC.start }
       refute env_ref.weakref_alive?

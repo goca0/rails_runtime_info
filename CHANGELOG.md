@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Require Ruby 2.5 or newer.
+- Stabilize weak-reference tests by ending fixture workers before collection
+  and clearing the synthetic Puma server reference during fixture teardown.
+
 ## 0.7.3
 
 - Add `process.linux.namespaces.discovery` to distinguish successful directory

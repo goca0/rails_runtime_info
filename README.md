@@ -285,7 +285,7 @@ introduced.
 
 ## Compatibility
 
-The code targets **Ruby 2.4+ and Rails 5.1+**, without requiring Rails to use the
+The code targets **Ruby 2.5+ and Rails 5.1+**, without requiring Rails to use the
 Rack callable. Optional methods and constants are checked before use. Linux
 collectors are optional; a non-Linux application still gets the other sections.
 There is no Passenger or Puma dependency. The response uses lowercase headers and does
@@ -419,8 +419,7 @@ CentOS 6 / Linux 2.6.32 workers running a Ruby with native-TID support. **That
 specific old-kernel/Ruby 3.4 combination has not been executed in validation.**
 On an older Ruby without that API and an older kernel without thread-self, the
 thread section is omitted; no native extension, Fiddle binding, raw syscall,
-external command or scan of other tasks is attempted. Ruby 2.4 remains the
-minimum implementation target.
+external command or scan of other tasks is attempted.
 
 The existing process-lifetime calculation is reused: field 22 supplies start
 ticks, `Etc.sysconf(Etc::SC_CLK_TCK)` supplies the conversion rate, and
@@ -905,7 +904,7 @@ nor Rack nor Bundler is necessary to run them:
 ruby script/test
 ```
 
-The development Gemfile pins test-tool ranges compatible with the Ruby 2.4
+The development Gemfile pins test-tool ranges compatible with the Ruby 2.5
 target. `script/test` also works with a suitable already-installed newer
 Minitest on a newer Ruby. No dependency installation happens automatically.
 

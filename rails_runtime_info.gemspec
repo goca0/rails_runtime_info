@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
   spec.summary = "Non-invasive, on-demand runtime diagnostics for Rails and Rack"
   spec.description = "A read-only, best-effort JSON snapshot of a Rails/Rack request, environment, gems, GC, YJIT, and process. Optional route-local Basic authentication. No hooks, global middleware, database connections, or runtime gem dependencies."
   spec.license = "Nonstandard"
-  spec.required_ruby_version = ">= 2.4"
+  spec.required_ruby_version = ">= 2.5"
   root = File.expand_path(__dir__)
   patterns = ["lib/**/*.rb", "README.md", "AGENTS.md", "TODO.md", "LICENSE", "CHANGELOG.md", "docs/**/*.md"]
   spec.files = patterns.flat_map { |pattern| Dir[File.join(root, pattern)] }.map { |path| path[(root.length + 1)..-1] }.sort
