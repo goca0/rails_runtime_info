@@ -365,7 +365,11 @@ class ThreadLifetimeTest < Minitest::Test
     native = LinuxProcess.current_thread_stat
     fallback = LinuxProcess.stub(:current_native_thread_id, nil) { LinuxProcess.current_thread_stat }
     assert_equal Thread.current.native_thread_id, native["tid"]
-    assert_equal native, fallback
+    assert_equal native.values_at("tid", "start_ticks_since_boot"), fallback.values_at("tid", "start_ticks_since_boot")
+    # CPU counters can advance between the two procfs reads.
+    %w[user_ticks system_ticks].each do |field|
+      assert_operator Integer(fallback.fetch(field), 10), :>=, Integer(native.fetch(field), 10)
+    end
     assert_operator LinuxProcess.lifetime(native["start_ticks_since_boot"])["age_seconds"], :>=, 0
   end
 

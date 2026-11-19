@@ -5,6 +5,7 @@
 - Require Ruby 2.5 or newer.
 - Stabilize weak-reference tests by ending fixture workers before collection
   and clearing the synthetic Puma server reference during fixture teardown.
+- Allow CPU counters to advance between reads in the live native-thread test.
 
 ## 0.7.3
 

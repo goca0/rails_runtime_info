@@ -16,20 +16,25 @@ during teardown. Both counter values are checked in the returned response.
 On 3.1.7, intentionally keeping each server object in the response body caused
 its corresponding weak-reference assertion to fail.
 
+The first bundle restoration on 3.3.13 also caught a live procfs test comparing
+two full task stat samples. The later read included one additional user CPU
+tick. The test now checks that both reads identify the same task and start time
+and that user and system CPU ticks can only stay the same or increase.
+
 ### Standalone and packaging checks
 
 Executed on Debian 13.6, Linux 6.18.57, x86-64. Each standalone run used
 `ruby script/test` with seed 24680 or 43210 and ran 341 tests with zero failures
 or errors. Counts below are per seed. `ruby -S rake` also passed on each
-interpreter with the listed generated seed.
+interpreter with the listed seed.
 
 | CRuby | RubyGems | Minitest | Bundler smoke | Assertions | Skips | Rake seed |
 | --- | --- | --- | --- | ---: | ---: | ---: |
 | 2.5.9 | 2.7.6.3 | 5.15.0 | 2.3.27 | 1,711 | 2 | 16299 |
 | 2.7.8 | 3.1.6 | 5.15.0 | 2.3.27 | 1,711 | 2 | 41947 |
-| 3.1.7 | 3.3.27 | 5.15.0 | 2.6.9 | 1,735 | 0 | 55011 |
-| 3.3.13 | 3.5.22 | 5.20.0 | 2.6.9 | 1,735 | 0 | 3358 |
-| 3.4.12 | 3.6.9 | 5.25.4 | 2.6.9 | 1,735 | 0 | 25841 |
+| 3.1.7 | 3.3.27 | 5.15.0 | 2.6.9 | 1,737 | 0 | 55011 |
+| 3.3.13 | 3.5.22 | 5.20.0 | 2.6.9 | 1,737 | 0 | 3358 |
+| 3.4.12 | 3.6.9 | 5.25.4 | 2.6.9 | 1,737 | 0 | 25841 |
 
 The two skips on each older Ruby require `Thread#native_thread_id`. All five
 interpreters passed tracked Ruby syntax checks, both Bundler loading modes,
